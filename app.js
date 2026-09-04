@@ -28,7 +28,7 @@
     USDT: { net: 'ERC-20', addr: '0x8b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e' },
     BTC: { net: 'Bitcoin', addr: 'bc1q9kz5y2p3v7hjm4x8nrdwct6e5fasd0g1h2j3k4l5' },
     ETH: { net: 'ERC-20', addr: '0x7f2a8b3c4d5e6f708192a3b4c5d6e7f8091a2b3c' },
-    LTC: { net: 'Litecoin', addr: 'ltc1q9kz5y2p3v7hjm4x8nrdwct6e5fasd0g1h2j3k4l5' }
+    SOL: { net: 'Solana', addr: '4h1Zq9Wx2Tp3VcA8kLd5Nm6rBs7Jg1Kt2Yu3Uw4Xq5Ro' }
   };
 
   function guessVip(uid) {
