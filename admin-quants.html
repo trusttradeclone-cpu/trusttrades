@@ -142,6 +142,7 @@
 
   <script>
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     function toast(type, msg) {
       var box = document.getElementById('toastBox');
       var el = document.createElement('div');
@@ -371,11 +372,13 @@
         if (!isFinite(sts) || !isFinite(ets) || ets <= sts) continue;
         var fPct = Math.min(100, Math.max(0, (now - sts) / (ets - sts) * 100));
         fl.style.width = fPct.toFixed(2) + '%';
-        var row = fl.closest('tr');
+        var row = fl.closest('tr, .admin-row-card, .admin-row-card-list');
         if (row) {
           var pctEl = row.querySelector('.apct');
+          if (!pctEl) pctEl = row.closest('.admin-row-card') ? row.closest('.admin-row-card').querySelector('.apct') : null;
           if (pctEl) pctEl.textContent = Math.round(fPct) + '%';
           var leftEl = row.querySelector('.aleft');
+          if (!leftEl) leftEl = row.closest('.admin-row-card') ? row.closest('.admin-row-card').querySelector('.aleft') : null;
           if (leftEl) leftEl.textContent = fmtLeft(ets - now);
         }
       }

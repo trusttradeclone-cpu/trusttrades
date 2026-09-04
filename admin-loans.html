@@ -111,6 +111,7 @@
 
   <script>
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     function toast(type, msg) {
       var box = document.getElementById('toastBox');
       var el = document.createElement('div');
@@ -141,7 +142,7 @@
     var approveBtns = '<span class="wd-actions ab-group"><button class="action-btn ab-green" onclick="setLoan(this,\'approved\')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Approve</button><button class="action-btn ab-red" onclick="setLoan(this,\'rejected\')">Reject</button></span>';
 
     function setLoan(btn, status) {
-      var tr = btn.closest('tr');
+      var tr = btn.closest('tr, .admin-row-card');
       var id = tr.getAttribute('data-id');
       var found = TrustApp.setLoanStatus(id, status);
       if (found && status === 'approved') TrustApp.addBalance(found.uid, 'USDT', found.amount);

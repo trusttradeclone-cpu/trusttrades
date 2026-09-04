@@ -1025,6 +1025,16 @@ table tr:last-child td{border-bottom:none}
 .admin-topbar .admin-logo{width:30px;height:30px;border-radius:8px;object-fit:contain}
 .admin-main{flex:1;padding:22px 24px 40px;max-width:1180px;width:100%;margin:0 auto}
 
+/* ---------- Admin segment tabs ---------- */
+.admin-seg-tabs{display:flex;gap:6px;margin:0 0 18px;background:#fff;border:1px solid #e9edf3;border-radius:14px;padding:5px;box-shadow:0 2px 10px rgba(19,31,48,.05)}
+.admin-seg-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 12px;border:none;background:transparent;border-radius:10px;font-size:13px;font-weight:700;color:#8a94a6;cursor:pointer;transition:background .15s,color .15s}
+.admin-seg-btn svg{width:16px;height:16px;flex-shrink:0}
+.admin-seg-btn:hover{color:#1652f0;background:#f0f4ff}
+.admin-seg-btn .tab-cnt{font-size:10.5px;font-weight:800;background:#eef2f8;color:#5b6472;border-radius:99px;padding:2px 8px;min-width:22px;text-align:center}
+.admin-seg-btn.active{background:#1652f0;color:#fff}
+.admin-seg-btn.active:hover{background:#1e5bf5;color:#fff}
+.admin-seg-btn.active .tab-cnt{background:rgba(255,255,255,.24);color:#fff}
+
 /* ---------- Redesigned content cards ---------- */
 .admin-hero{
   position:relative;overflow:hidden;border-radius:16px;padding:24px;margin-bottom:20px;
@@ -1143,20 +1153,43 @@ table tr:last-child td{border-bottom:none}
 .admin-shell .sub-header{display:none}
 .admin-shell .admin-nav{display:block}
 
+/* ---------- Admin hamburger drawer ---------- */
+.admin-hamburger{display:none;align-items:center;justify-content:center;width:38px;height:38px;flex:0 0 38px;background:#f5f7fb;border:1px solid #e9edf3;border-radius:10px;color:#33415c;cursor:pointer;transition:background .15s,color .15s}
+.admin-hamburger:hover{background:#e8eefc;color:#1652f0}
+.admin-hamburger svg{width:19px;height:19px}
+.admin-drawer-close{display:none;align-items:center;justify-content:center;width:30px;height:30px;margin-left:auto;flex:0 0 30px;background:none;border:none;border-radius:8px;color:#8a94a6;cursor:pointer;transition:background .15s,color .15s}
+.admin-drawer-close:hover{background:#f0f4ff;color:#1652f0}
+.admin-drawer-close svg{width:16px;height:16px}
+.admin-sidebar-backdrop{position:fixed;inset:0;z-index:880;background:rgba(19,31,48,.45);opacity:0;visibility:hidden;transition:opacity .26s,visibility .26s}
+.admin-sidebar-backdrop.show{opacity:1;visibility:visible}
+body.nav-open-lock{overflow:hidden}
+
+/* ---------- Admin quick-access bottom nav (phones) ---------- */
+.admin-bottom-nav{display:none}
+.abn-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 2px;text-decoration:none;color:#8a94a6;font-size:9.5px;font-weight:700;border-radius:12px;letter-spacing:.02em}
+.abn-item svg{width:20px;height:20px;opacity:.9}
+.abn-item.abn-active{color:#1652f0}
+.abn-item.abn-active svg{opacity:1}
+
 /* ---------- Redesign responsive ---------- */
 @media (max-width:900px){
   .admin-shell{display:block}
-  .admin-sidebar{width:100%;flex:none;position:static;height:auto;border-right:none;border-bottom:1px solid #e9edf3}
-  .as-logo{padding:14px 16px 10px}
-  .as-nav{display:flex;flex-wrap:nowrap;overflow-x:auto;padding:8px 12px 10px;gap:6px;-webkit-overflow-scrolling:touch}
-  .as-nav::-webkit-scrollbar{display:none}
-  .as-group-label{display:none}
-  .as-link{padding:8px 13px;font-size:12.5px;border-radius:99px}
-  .as-link svg{display:none}
-  .as-link.active::before{display:none}
-  .as-link.active{background:#1652f0;color:#fff}
-  .as-foot{display:none}
-  .admin-topbar{padding:12px 16px}
+  .admin-hamburger{display:flex}
+  .admin-drawer-close{display:flex}
+  .admin-sidebar{width:278px;max-width:84vw;flex:none;position:fixed;top:0;left:0;bottom:0;height:100vh;z-index:900;border-right:1px solid #e9edf3;transform:translateX(-105%);transition:transform .26s cubic-bezier(.4,0,.2,1);box-shadow:0 0 40px rgba(19,31,48,.16)}
+  .admin-sidebar.sidebar-open{transform:translateX(0);box-shadow:0 0 48px rgba(19,31,48,.3)}
+  .admin-sidebar .as-logo{padding:16px 14px 12px}
+  .admin-sidebar .as-nav{display:block;overflow-y:auto;overflow-x:hidden}
+  .admin-sidebar .as-group-label{display:block}
+  .admin-sidebar .as-link{display:flex;gap:11px;padding:9px 12px;border-radius:9px;font-size:13.5px;color:#5a6b8c;white-space:nowrap}
+  .admin-sidebar .as-link svg{display:block;opacity:.8}
+  .admin-sidebar .as-link.active{background:linear-gradient(90deg,#e9efff,#eef3ff);color:#1652f0;font-weight:700;border-radius:9px}
+  .admin-sidebar .as-link.active::before{display:block}
+  .admin-sidebar .as-foot{display:block}
+  .admin-topbar{padding:12px 14px}
+  .admin-seg-tabs{position:sticky;top:64px;z-index:40;margin-bottom:14px}
+  .admin-bottom-nav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:800;background:rgba(255,255,255,.97);backdrop-filter:blur(8px);border-top:1px solid #e9edf3;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(19,31,48,.08)}
+  .admin-page .admin-main{padding-bottom:96px}
   .admin-main{padding:16px 14px 30px}
   .admin-hero{flex-direction:column;align-items:flex-start;padding:20px}
   .admin-hero-title{font-size:20px}
@@ -1174,6 +1207,31 @@ table tr:last-child td{border-bottom:none}
   .admin-hero{padding:18px}
   .admin-hero-title{font-size:18px}
   .admin-hero-sub{font-size:12.5px}
+}
+
+/* ---------- Admin mobile card rows (phones only) ---------- */
+.admin-row-card-list{display:flex;flex-direction:column;gap:10px;padding:12px}
+.admin-row-card{
+  background:#fff;border:1px solid #e9edf3;border-radius:14px;
+  box-shadow:0 2px 10px rgba(19,31,48,.05);padding:14px;display:flex;flex-direction:column;gap:10px;
+}
+.arc-head{display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1px solid #f0f3f9}
+.admin-row-card.arc-collapsible .arc-body{display:none}
+.admin-row-card.arc-collapsible.arc-open .arc-body{display:block}
+.arc-collapsible .arc-head{cursor:pointer;user-select:none}
+.arc-chev{display:flex;align-items:center;justify-content:center;margin-left:auto;flex:0 0 26px;width:26px;height:26px;background:#f0f4ff;border-radius:8px;color:#1652f0;transition:transform .2s,background .2s,color .2s}
+.arc-chev svg{width:14px;height:14px}
+.admin-row-card.arc-collapsible.arc-open .arc-chev{transform:rotate(180deg);background:#1652f0;color:#fff}
+.arc-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}
+.arc-row .arc-label{color:#8a94a6;font-weight:600;font-size:11.5px;flex-shrink:0}
+.arc-row .arc-value{color:#131f30;font-weight:600;text-align:right;min-width:0}
+.arc-actions{display:flex;flex-wrap:wrap;gap:8px;padding-top:10px;border-top:1px solid #f0f3f9}
+.arc-actions .action-btn{flex:1;min-width:110px;justify-content:center;padding:10px 12px}
+.admin-panel table[data-mc-on]{display:none}
+
+@media (max-width:640px){
+  .admin-table-wrap{overflow:visible}
+  .admin-panel table[data-mc-on]{display:none}
 }
 
 /* Deposit address section — slightly bolder */

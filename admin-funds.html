@@ -70,6 +70,12 @@
       </div>
     </div>
 
+    <div class="admin-seg-tabs">
+      <button class="admin-seg-btn active" data-fund-tab="dep"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18"></path><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path></svg>Deposits <span class="tab-cnt" id="tabCntDep">0</span></button>
+      <button class="admin-seg-btn" data-fund-tab="wd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19h18"></path><path d="M12 15V3"></path><path d="m7 8 5-5 5 5"></path></svg>Withdrawals <span class="tab-cnt" id="tabCntWd">0</span></button>
+    </div>
+
+    <div class="fund-tab-pane" data-fund-pane="dep">
     <div class="admin-panel">
       <div class="admin-panel-head">
         <div class="ph-title"><span class="ph-dot"></span>Recent Deposits <span class="ph-sub">&#183; confirmed amounts are credited in USDT at live price</span></div>
@@ -81,7 +87,9 @@
         </table>
       </div>
     </div>
+    </div>
 
+    <div class="fund-tab-pane" data-fund-pane="wd" style="display:none">
     <div class="admin-panel">
       <div class="admin-panel-head">
         <div class="ph-title"><span class="ph-dot" style="background:#d97706;"></span>Pending Withdrawals <span class="ph-sub">&#183; approving debits the user's coin balance</span></div>
@@ -92,6 +100,7 @@
           <tbody id="wdRows"></tbody>
         </table>
       </div>
+    </div>
     </div>
       </main>
     </div>
@@ -112,6 +121,7 @@
 
   <script>
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     function toast(type, msg) {
       var box = document.getElementById('toastBox');
       var el = document.createElement('div');
@@ -142,7 +152,7 @@
     var wdBtns = '<span class="wd-actions ab-group"><button class="action-btn ab-green" onclick="setWd(this,\'confirmed\')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Approve</button><button class="action-btn ab-red" onclick="setWd(this,\'rejected\')">Reject</button></span>';
 
     function setDep(btn, status) {
-      var tr = btn.closest('tr');
+      var tr = btn.closest('tr, .admin-row-card');
       var id = tr.getAttribute('data-id');
       if (status === 'confirmed') {
         var pending = TrustApp.getTxns().filter(function (t) { return t.id === id; })[0];
@@ -162,7 +172,7 @@
       renderAll();
     }
     function setWd(btn, status) {
-      var tr = btn.closest('tr');
+      var tr = btn.closest('tr, .admin-row-card');
       var id = tr.getAttribute('data-id');
       var found = TrustApp.setTxnStatus(id, status);
       if (found && status === 'confirmed') {
@@ -190,6 +200,8 @@
       document.getElementById('chipDep').textContent = deps.length + ' deposits';
       document.getElementById('chipWd').textContent = wds.length + ' pending withdrawals';
       document.getElementById('chipUsd').textContent = '$' + fmtAmt(confUsd, 'USDT') + ' confirmed';
+      document.getElementById('tabCntDep').textContent = deps.length;
+      document.getElementById('tabCntWd').textContent = wds.length;
       var depBox = document.getElementById('depRows');
       if (!deps.length) {
         depBox.innerHTML = '<tr><td colspan="6"><div class="empty-state"><span class="es-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9"></path><path d="M7 10h4"></path><path d="M11 6v4"></path></svg></span>No deposits yet</div></td></tr>';
@@ -222,6 +234,21 @@
       }
     }
     renderAll();
+    function showFundTab(name) {
+      document.querySelectorAll('.admin-seg-btn').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-fund-tab') === name);
+      });
+      document.querySelectorAll('.fund-tab-pane').forEach(function (p) {
+        p.style.display = p.getAttribute('data-fund-pane') === name ? '' : 'none';
+      });
+      if (TrustApp.makeAdminTablesMobile) {
+        setTimeout(function () { try { TrustApp.makeAdminTablesMobile(); } catch (e) {} }, 30);
+      }
+    }
+    document.querySelectorAll('.admin-seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () { showFundTab(b.getAttribute('data-fund-tab')); });
+    });
+    if (parseInt(document.getElementById('tabCntWd').textContent, 10) > 0) showFundTab('wd');
     function applyMarketStatus() {
       var chip = document.getElementById('chipMarket');
       if (!chip) return;

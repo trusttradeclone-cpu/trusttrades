@@ -521,8 +521,8 @@
     'loan.noRecords': { en: 'No loan records', zh: '暂无借款记录', ja: 'ローン記録がありません', ko: '대출 내역 없음', fa: 'بدون سابقه وام', de: 'Keine Darlehensaufzeichnungen', fr: 'Aucun historique de prêt', es: 'Sin historial de préstamos', it: 'Nessun prestito', pt: 'Sem empréstimos', ru: 'Нет записей о займах' },
     'loan.days': { en: 'Days', zh: '天', ja: '日', ko: '일', fa: 'روز', de: 'Tage', fr: 'Jours', es: 'Días', it: 'Giorni', pt: 'Dias', ru: 'дней' },
     'loan.time': { en: 'Time', zh: '时间', ja: '時間', ko: '시간', fa: 'زمان', de: 'Zeit', fr: 'Heure', es: 'Hora', it: 'Ora', pt: 'Horário', ru: 'Время' },
-    'loan.plan7': { en: '7 Days - [1,000-5,000]', zh: '7天 - [1,000-5,000]', ja: '7日 - [1,000-5,000]', ko: '7일 - [1,000-5,000]', fa: '۷ روز - [۱,۰۰۰-۵,۰۰۰]', de: '7 Tage - [1.000-5.000]', fr: '7 jours - [1 000-5 000]', es: '7 días - [1.000-5.000]', it: '7 giorni - [1.000-5.000]', pt: '7 dias - [1.000-5.000]', ru: '7 дней - [1 000-5 000]' },
-    'loan.plan14': { en: '14 Days - [5,000-10,000]', zh: '14天 - [5,000-10,000]', ja: '14日 - [5,000-10,000]', ko: '14일 - [5,000-10,000]', fa: '۱۴ روز - [۵,۰۰۰-۱۰,۰۰۰]', de: '14 Tage - [5.000-10.000]', fr: '14 jours - [5 000-10 000]', es: '14 días - [5.000-10.000]', it: '14 giorni - [5.000-10.000]', pt: '14 dias - [5.000-10.000]', ru: '14 дней - [5 000-10 000]' },
+    'loan.plan7': { en: '7 Days - [100-5,000]', zh: '7天 - [100-5,000]', ja: '7日 - [100-5,000]', ko: '7일 - [100-5,000]', fa: '۷ روز - [۱۰۰-۵,۰۰۰]', de: '7 Tage - [100-5.000]', fr: '7 jours - [100-5 000]', es: '7 días - [100-5.000]', it: '7 giorni - [100-5.000]', pt: '7 dias - [100-5.000]', ru: '7 дней - [100-5 000]' },
+    'loan.plan14': { en: '14 Days - [1,000-10,000]', zh: '14天 - [1,000-10,000]', ja: '14日 - [1,000-10,000]', ko: '14일 - [1,000-10,000]', fa: '۱۴ روز - [۱,۰۰۰-۱۰,۰۰۰]', de: '14 Tage - [1.000-10.000]', fr: '14 jours - [1 000-10 000]', es: '14 días - [1.000-10.000]', it: '14 giorni - [1.000-10.000]', pt: '14 dias - [1.000-10.000]', ru: '14 дней - [1 000-10 000]' },
     'loan.plan30': { en: '30 Days - [10,000-50,000]', zh: '30天 - [10,000-50,000]', ja: '30日 - [10,000-50,000]', ko: '30일 - [10,000-50,000]', fa: '۳۰ روز - [۱۰,۰۰۰-۵۰,۰۰۰]', de: '30 Tage - [10.000-50.000]', fr: '30 jours - [10 000-50 000]', es: '30 días - [10.000-50.000]', it: '30 giorni - [10.000-50.000]', pt: '30 dias - [10.000-50.000]', ru: '30 дней - [10 000-50 000]' },
     'loan.plan60': { en: '60 Days - [20,000-200,000]', zh: '60天 - [20,000-200,000]', ja: '60日 - [20,000-200,000]', ko: '60일 - [20,000-200,000]', fa: '۶۰ روز - [۲۰,۰۰۰-۲۰۰,۰۰۰]', de: '60 Tage - [20.000-200.000]', fr: '60 jours - [20 000-200 000]', es: '60 días - [20.000-200.000]', it: '60 giorni - [20.000-200.000]', pt: '60 dias - [20.000-200.000]', ru: '60 дней - [20 000-200 000]' },
     'loan.amountLabel': { en: 'Amount: $', zh: '金额：$', ja: '金額：$', ko: '금액: $', fa: 'مبلغ: $', de: 'Betrag: $', fr: 'Montant : $', es: 'Monto: $', it: 'Importo: $', pt: 'Valor: $', ru: 'Сумма: $' },
@@ -1477,6 +1477,235 @@
     document.addEventListener('keydown', function handler(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', handler); } });
   }
 
+  var adminTablesInited = false;
+
+  function isAdminMobile() {
+    return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width:640px)').matches;
+  }
+
+  /* Convert admin data tables to stacked card lists on phones.
+     Moves the real <td> nodes into card layout so inline onclick
+     handlers and data-id attributes survive. Rebuilds every time so
+     auto-update re-renders stay in sync. Restores tables on desktop. */
+  function makeAdminTablesMobile() {
+    if (!document || !document.querySelectorAll) return;
+    if (!document.body || document.body.className.indexOf('admin-page') === -1) return;
+    var want = isAdminMobile();
+    if (!want) {
+      document.querySelectorAll('.admin-row-card-list').forEach(function (list) {
+        var tbl = list._srcTbl;
+        if (tbl) { tbl.style.display = ''; tbl.removeAttribute('data-mc-on'); tbl.removeAttribute('data-mc-sig'); }
+        list.remove();
+      });
+      return;
+    }
+    document.querySelectorAll('.admin-panel table').forEach(function (tbl) {
+      if (!tbl.querySelector('thead') || !tbl.querySelector('tbody')) return;
+      buildCards(tbl);
+    });
+  }
+
+  function buildCards(tbl) {
+    var thead = tbl.querySelector('thead');
+    var tbody = tbl.querySelector('tbody');
+    if (!thead || !tbody) return;
+    var ths = Array.prototype.map.call(thead.querySelectorAll('th'), function (th) { return th.textContent || ''; });
+    var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+    if (!rows.length) return;
+    // signature computed from live rows BEFORE moving; rebuilt cards produce
+    // an emptied table whose signature differs -> store emptied sig after move
+    var sig = rows.map(function (tr) {
+      return Array.prototype.map.call(tr.querySelectorAll('td'), function (td) { return (td.textContent || '').trim(); }).join('|');
+    }).join(';;').slice(0, 400);
+    // If signature already matches stored, table is either already carded or
+    // fully emptied by a previous build (observer loop) -> skip.
+    var stored = tbl.getAttribute('data-mc-sig') || '';
+    var sigMatch = stored === sig;
+    var alreadyCarded = tbl.style.display === 'none' && tbl.getAttribute('data-mc-on') === '1';
+    if (alreadyCarded && sigMatch) return;
+    // remove any existing card list for this table before rebuilding
+    var wrap = tbl.parentNode;
+    var existing = wrap.querySelector('.admin-row-card-list');
+    if (existing && existing._srcTbl === tbl) existing.remove();
+    var list = document.createElement('div');
+    list.className = 'admin-row-card-list';
+    rows.forEach(function (tr) {
+      var tds = tr.querySelectorAll('td');
+      if (!tds.length) return;
+      var card = document.createElement('div');
+      card.className = 'admin-row-card';
+      if (tr.getAttribute('data-id')) card.setAttribute('data-id', tr.getAttribute('data-id'));
+      var accordion = tbl.getAttribute('data-mc-accordion') === '1';
+      var bodyWrap = null;
+      var headHolder = null;
+      if (accordion) {
+        card.classList.add('arc-collapsible');
+        bodyWrap = document.createElement('div');
+        bodyWrap.className = 'arc-body';
+      }
+      tds.forEach(function (td, ci) {
+        var label = ths[ci] || '';
+        var holder = document.createElement('div');
+        if ((!label && ci === 0) || label === 'User' || label === 'Account') {
+          holder.className = 'arc-head';
+          while (td.firstChild) holder.appendChild(td.firstChild);
+          headHolder = holder;
+        } else if (label === 'Action' || label === 'Actions' || !label) {
+          holder.className = 'arc-actions';
+          while (td.firstChild) holder.appendChild(td.firstChild);
+        } else {
+          holder.className = 'arc-row';
+          var l = document.createElement('span');
+          l.className = 'arc-label';
+          l.textContent = label;
+          var v = document.createElement('span');
+          v.className = 'arc-value';
+          while (td.firstChild) v.appendChild(td.firstChild);
+          holder.appendChild(l);
+          holder.appendChild(v);
+        }
+        if (accordion && holder !== headHolder) bodyWrap.appendChild(holder);
+        else card.appendChild(holder);
+      });
+      if (accordion && headHolder) {
+        var chev = document.createElement('span');
+        chev.className = 'arc-chev';
+        chev.setAttribute('aria-hidden', 'true');
+        chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>';
+        headHolder.appendChild(chev);
+        headHolder.setAttribute('role', 'button');
+        headHolder.addEventListener('click', function () { card.classList.toggle('arc-open'); });
+      }
+      if (accordion && bodyWrap) card.appendChild(bodyWrap);
+      list.appendChild(card);
+    });
+    list._srcTbl = tbl;
+    wrap.insertBefore(list, tbl);
+    tbl.style.display = 'none';
+    tbl.setAttribute('data-mc-on', '1');
+    // store the "emptied" signature: after moving td children into the cards
+    // the live table reads as empty. This lets re-renders (which repopulate
+    // the tbody) change the signature and trigger a rebuild, while the
+    // MutationObserver sees an unchanged empty table and skips (no loop).
+    var emptiedSig = Array.prototype.map.call(tbody.querySelectorAll('tr'), function (tr) {
+      return Array.prototype.map.call(tr.querySelectorAll('td'), function (td) { return (td.textContent || '').trim(); }).join('|');
+    }).join(';;').slice(0, 400);
+    tbl.setAttribute('data-mc-sig', emptiedSig);
+  }
+
+  function initAdminTablesMobile() {
+    if (adminTablesInited) return;
+    adminTablesInited = true;
+    function refresh() {
+      clearTimeout(window.__adminMcT);
+      window.__adminMcT = setTimeout(function () {
+        try { makeAdminTablesMobile(); } catch (e) {}
+      }, 120);
+    }
+    try { makeAdminTablesMobile(); } catch (e) {}
+    if (typeof window !== 'undefined') {
+      if (window.MutationObserver) {
+        try { new window.MutationObserver(refresh).observe(document.body || document, { childList: true, subtree: true }); } catch (e) {}
+      } else { setInterval(refresh, 1500); }
+      window.addEventListener('resize', refresh);
+    }
+  }
+
+  /* Mobile hamburger slide-out drawer for the admin sidebar.
+     Injects the hamburger button (topbar) and backdrop, toggles the
+     .sidebar-open class. Closes on backdrop click, Escape, nav-link
+     click, or resizing back to desktop. Lock screen (z-index 1000)
+     stays above the drawer (z-index 900). */
+  var navDrawerInited = false;
+
+  function initAdminNavDrawer() {
+    if (navDrawerInited) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    try {
+      var topbar = document.querySelector('.admin-topbar');
+      var sidebar = document.querySelector('.admin-sidebar');
+      if (!topbar || !sidebar) return;
+      navDrawerInited = true;
+
+      var burger = document.createElement('button');
+      burger.className = 'admin-hamburger';
+      burger.setAttribute('aria-label', 'Menu');
+      burger.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"></path></svg>';
+      topbar.insertBefore(burger, topbar.firstChild);
+
+      var backdrop = document.createElement('div');
+      backdrop.className = 'admin-sidebar-backdrop';
+      document.body.appendChild(backdrop);
+
+      function openDrawer() {
+        sidebar.classList.add('sidebar-open');
+        backdrop.classList.add('show');
+        document.body.classList.add('nav-open-lock');
+      }
+      function closeDrawer() {
+        sidebar.classList.remove('sidebar-open');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('nav-open-lock');
+      }
+
+      burger.addEventListener('click', function () {
+        if (sidebar.classList.contains('sidebar-open')) closeDrawer(); else openDrawer();
+      });
+      backdrop.addEventListener('click', closeDrawer);
+
+      var closeBtn = document.createElement('button');
+      closeBtn.className = 'admin-drawer-close';
+      closeBtn.setAttribute('aria-label', 'Close');
+      closeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>';
+      closeBtn.addEventListener('click', closeDrawer);
+      var logo = sidebar.querySelector('.as-logo');
+      if (logo) logo.appendChild(closeBtn);
+
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });
+      sidebar.querySelectorAll('.as-link').forEach(function (a) { a.addEventListener('click', closeDrawer); });
+      window.addEventListener('resize', function () {
+        if (window.innerWidth > 900) closeDrawer();
+      });
+    } catch (e) {}
+  }
+
+  /* Mobile quick-access bottom navigation for admin pages.
+     Injects a fixed bottom bar with the 5 most used destinations so
+     admins don't need the hamburger drawer for top-level navigation.
+     Visible only on phones (CSS). Active item matches the sidebar's
+     current .as-link.active so it stays in sync per page. */
+  var bottomNavInited = false;
+
+  function initAdminBottomNav() {
+    if (bottomNavInited) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    try {
+      if (!document.querySelector('.admin-shell') || !document.querySelector('.admin-sidebar')) return;
+      bottomNavInited = true;
+      var items = [
+        { href: 'admin.html', label: 'Dashboard', svg: '<rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect>' },
+        { href: 'admin-users.html', label: 'Users', svg: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path>' },
+        { href: 'admin-quants.html', label: 'AI Quant', svg: '<rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"></path>' },
+        { href: 'admin-funds.html', label: 'Funding', svg: '<path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>' },
+        { href: 'admin-chat.html', label: 'Support', svg: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' }
+      ];
+      var nav = document.createElement('nav');
+      nav.className = 'admin-bottom-nav';
+      nav.setAttribute('aria-label', 'Admin shortcuts');
+      var activeAs = document.querySelector('.as-link.active');
+      var activeHref = activeAs ? (activeAs.getAttribute('href') || '') : null;
+      items.forEach(function (it) {
+        var a = document.createElement('a');
+        a.className = 'abn-item';
+        a.href = it.href;
+        a.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + it.svg + '</svg><span>' + it.label + '</span>';
+        if (activeHref && it.href === activeHref) a.classList.add('abn-active');
+        nav.appendChild(a);
+      });
+      document.body.appendChild(nav);
+    } catch (e) {}
+  }
+
   global.TrustApp = {
     AppConfig: AppConfig,
     MARKET: MARKET,
@@ -1488,6 +1717,10 @@
     coinIconPath: coinIconPath,
     watchStorage: watchStorage,
     showImageLightbox: showImageLightbox,
+    makeAdminTablesMobile: makeAdminTablesMobile,
+    initAdminTablesMobile: initAdminTablesMobile,
+    initAdminNavDrawer: initAdminNavDrawer,
+    initAdminBottomNav: initAdminBottomNav,
     liveTick: liveTick,
     fmtPrice: fmtPrice,
     pricePrefix: pricePrefix,
@@ -1597,5 +1830,23 @@
     setInterval(function () {
       try { aiProcess(); } catch (e) {}
     }, 30000);
+  })();
+
+  (function bootAdminNavDrawer() {
+    try {
+      if (typeof document === 'undefined' || typeof window === 'undefined') return;
+      function boot() {
+        if (!document.body) return;
+        if (document.body.className.indexOf('admin-page') === -1) return;
+        if (!document.querySelector('.admin-sidebar')) return;
+        initAdminNavDrawer();
+        initAdminBottomNav();
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+      } else {
+        boot();
+      }
+    } catch (e) {}
   })();
 })(window);

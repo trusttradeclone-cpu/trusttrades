@@ -212,6 +212,7 @@
     }
 
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     renderList();
     setInterval(renderList, 3000);
     window.addEventListener('storage', function (e) {

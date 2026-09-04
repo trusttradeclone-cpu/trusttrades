@@ -84,7 +84,7 @@
         <div class="ph-title"><span class="ph-dot"></span>All Users <span class="ph-sub">&#183; click Edit to manage a user</span></div>
       </div>
       <div class="admin-table-wrap">
-        <table>
+        <table data-mc-accordion="1">
           <thead><tr><th>Account</th><th>UID</th><th>Balance</th><th>Status</th><th>Joined</th><th>Verification</th><th>Profit Mode</th><th>Actions</th></tr></thead>
           <tbody id="userRows"></tbody>
         </table>
@@ -272,6 +272,7 @@
       }).join('');
     }
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     renderUsers();
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustUsers', 'trustBalances'], function () { renderUsers(); });
@@ -281,6 +282,9 @@
       var q = searchBox.value.toLowerCase();
       document.querySelectorAll('#userRows tr').forEach(function (r) {
         r.style.display = r.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+      });
+      document.querySelectorAll('.admin-panel .admin-row-card').forEach(function (c) {
+        c.style.display = c.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
       });
     });
   </script>

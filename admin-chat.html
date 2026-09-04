@@ -141,6 +141,7 @@
 
   <script>
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     function toast(type, msg) {
       var box = document.getElementById('toastBox');
       var el = document.createElement('div');

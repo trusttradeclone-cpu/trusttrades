@@ -211,6 +211,7 @@
 
   <script>
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     var users = TrustApp.getUsers();
     var statEl = document.getElementById('statUsers');
     if (statEl) statEl.textContent = users.length;

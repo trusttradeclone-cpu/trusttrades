@@ -382,6 +382,7 @@
     }
 
     TrustApp.initAdminLock();
+    if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     renderStats();
     renderFilters();
     renderList();
