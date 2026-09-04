@@ -146,7 +146,7 @@
         amount: amt,
         days: parseInt(selected, 10),
         rate: p.rate,
-        interest: Math.round(amt * (p.rate / 100))
+        interest: Math.round(amt * (p.rate / 100) * 100) / 100
       });
       toast('success', TrustApp.t('loan.submitted'));
       renderRecords();

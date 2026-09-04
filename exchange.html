@@ -153,7 +153,7 @@
       var fromR = rate(document.getElementById('fromCoin'));
       var toR = rate(document.getElementById('toCoin'));
       var usd = amt * fromR;
-      var recv = usd / toR;
+      var recv = usd / toR * (1 - EXCHANGE_FEE / 100);
       document.getElementById('toAmount').value = recv === 0 ? '' : recv.toFixed(recv < 0.01 ? 8 : (recv < 10 ? 4 : 2));
       document.getElementById('rateLine').textContent = TrustApp.t('exch.rate') + ': 1 ' + document.getElementById('fromCoin').value + ' = ' + (fromR / toR).toFixed(6) + ' ' + document.getElementById('toCoin').value;
     }
