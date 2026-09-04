@@ -212,10 +212,9 @@
       var html = coins.map(function (c, i) {
         var st = COIN_STYLE[c] || { c: '#64748b', g: '#64748b,#4b5563' };
         var net = (addrs[c].net || TrustApp.t('funds.mainnet')).toUpperCase();
-        var d = TrustApp.findCoin ? TrustApp.findCoin(c) : null;
-        var icon = (d && d.i) ? 'img/' + d.i : 'img/' + c.toLowerCase() + '.png';
+        var icon = TrustApp.coinIconPath ? TrustApp.coinIconPath(c) : 'img/' + c.toLowerCase() + '.png';
         return '<div class="dep-coin' + (i === 0 ? ' active' : '') + '" data-c="' + c + '">'
-          + '<span class="dep-coin-icon" style="background:' + st.c + ';overflow:hidden;"><img src="' + icon + '" alt="' + c + '" style="width:34px;height:34px;object-fit:contain;" onerror="this.style.display=\'none\';">' + c.charAt(0) + '</span>'
+          + '<span class="dep-coin-icon"><img src="' + icon + '" alt="' + c + '" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + c.charAt(0) + '\';this.parentNode.style.background=\'' + st.c + '\';">' + c.charAt(0) + '</span>'
           + '<span class="dep-coin-sym">' + c + '</span>'
           + '<span class="dep-coin-net">' + net + '</span>'
           + '</div>';

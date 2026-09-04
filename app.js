@@ -353,6 +353,18 @@
     return marketFlat[s] || null;
   }
 
+  function coinIconPath(coin) {
+    var c = String(coin || '').toUpperCase();
+    if (!c) return '';
+    var file = ICON_MAP[c] || ICON_BY_NAME[c] || null;
+    if (!file) {
+      var d = marketFlat[c];
+      if (d && d.i) file = d.i;
+    }
+    if (!file) file = c.toLowerCase() + '.png';
+    return 'img/' + file;
+  }
+
   function liveTick(tab, onUpdate) {
     var data = MARKET[tab];
     if (!data) return;
@@ -1452,6 +1464,7 @@
     fetchMarket: fetchMarket,
     isMarketLive: isMarketLive,
     findCoin: findCoin,
+    coinIconPath: coinIconPath,
     liveTick: liveTick,
     fmtPrice: fmtPrice,
     pricePrefix: pricePrefix,
