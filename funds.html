@@ -81,9 +81,9 @@
         <div id="wdCrypto">
           <label class="form-label" style="margin-top:14px;" data-i18n="funds.currency">Currency</label>
           <div class="currency-chips" id="coinChips2">
-            <button class="currency-chip active" data-c="USDT"><span class="cc-sym">USDT</span><span class="cc-net">ERC20</span></button>
-            <button class="currency-chip" data-c="BTC"><span class="cc-sym">BTC</span><span class="cc-net">Bitcoin</span></button>
-            <button class="currency-chip" data-c="ETH"><span class="cc-sym">ETH</span><span class="cc-net">Ethereum network</span></button>
+            <button class="currency-chip active" data-c="USDT"><span class="cc-sym"><img src="img/usdt.png" alt="" style="width:20px;height:20px;border-radius:50%;margin-right:5px;vertical-align:-5px;">USDT</span><span class="cc-net">ERC20</span></button>
+            <button class="currency-chip" data-c="BTC"><span class="cc-sym"><img src="img/btc.png" alt="" style="width:20px;height:20px;border-radius:50%;margin-right:5px;vertical-align:-5px;">BTC</span><span class="cc-net">Bitcoin</span></button>
+            <button class="currency-chip" data-c="ETH"><span class="cc-sym"><img src="img/eth.png" alt="" style="width:20px;height:20px;border-radius:50%;margin-right:5px;vertical-align:-5px;">ETH</span><span class="cc-net">Ethereum network</span></button>
           </div>
           <label class="form-label" style="margin-top:14px;" data-i18n="funds.withdrawAddress">Withdrawal Address</label>
           <input type="text" class="form-input" id="wdAddress" data-i18n-ph="funds.enterAddress" placeholder="Please enter withdrawal address">
@@ -212,8 +212,10 @@
       var html = coins.map(function (c, i) {
         var st = COIN_STYLE[c] || { c: '#64748b', g: '#64748b,#4b5563' };
         var net = (addrs[c].net || TrustApp.t('funds.mainnet')).toUpperCase();
+        var d = TrustApp.findCoin ? TrustApp.findCoin(c) : null;
+        var icon = (d && d.i) ? 'img/' + d.i : 'img/' + c.toLowerCase() + '.png';
         return '<div class="dep-coin' + (i === 0 ? ' active' : '') + '" data-c="' + c + '">'
-          + '<span class="dep-coin-icon" style="background:' + st.c + ';">' + c.charAt(0) + '</span>'
+          + '<span class="dep-coin-icon" style="background:' + st.c + ';overflow:hidden;"><img src="' + icon + '" alt="' + c + '" style="width:34px;height:34px;object-fit:contain;" onerror="this.style.display=\'none\';">' + c.charAt(0) + '</span>'
           + '<span class="dep-coin-sym">' + c + '</span>'
           + '<span class="dep-coin-net">' + net + '</span>'
           + '</div>';
