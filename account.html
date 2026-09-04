@@ -97,7 +97,7 @@
 
     function coinIcon(c) {
       var d = TrustApp.findCoin ? TrustApp.findCoin(c) : null;
-      var src = (d && d.i) ? 'img/' + d.i : 'img/' + c + '.png';
+      var src = (d && d.i) ? 'img/' + d.i : 'img/' + c.toLowerCase() + '.png';
       var color = COIN_COLOR[c] || '#64748b';
       return '<div class="wallet-icon"><img src="' + src + '" alt="' + c + '" onerror="this.style.display=\'none\';this.parentNode.style.background=\'' + color + '\';this.parentNode.style.color=\'#fff\';this.parentNode.style.fontWeight=\'800\';this.parentNode.textContent=\'' + c.charAt(0) + '\';"></div>';
     }

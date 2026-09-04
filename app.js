@@ -112,7 +112,7 @@
   })();
 
   var ICON_MAP = {
-    BTC: 'btc.png', ETH: 'eth.png', LTC: 'ltc.png', XRP: 'xrp.png', DOGE: 'DOGE.png',
+    USDT: 'usdt.png', BTC: 'btc.png', ETH: 'eth.png', LTC: 'ltc.png', XRP: 'xrp.png', DOGE: 'DOGE.png',
     TON: 'TON.png', ADA: 'ADA.png', BNB: 'BNB.png', TRX: 'TRX.png', UNI: 'UNI.png',
     AVAX: 'AVAX.png', USDC: 'USDC.png', DOT: 'DOT.png', LINK: 'LINK.png',
     BCH: 'BCH.png', BSV: 'BSV.png', IOTA: 'IOTA.png', ETC: 'ETC.png', TUSD: 'TUSD.png',
