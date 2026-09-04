@@ -503,6 +503,9 @@
     updateWdTip();
     renderAddr();
     renderHist();
+    if (TrustApp.watchStorage) {
+      TrustApp.watchStorage(['trustTxns', 'trustBalances'], function () { renderHist(); updateWdBalance(); });
+    }
   </script>
 </body>
 </html>

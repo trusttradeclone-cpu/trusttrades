@@ -273,6 +273,9 @@
     }
     TrustApp.initAdminLock();
     renderUsers();
+    if (TrustApp.watchStorage) {
+      TrustApp.watchStorage(['trustUsers', 'trustBalances'], function () { renderUsers(); });
+    }
     var searchBox = document.getElementById('userSearch');
     searchBox.addEventListener('input', function () {
       var q = searchBox.value.toLowerCase();

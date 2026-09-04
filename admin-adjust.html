@@ -204,6 +204,9 @@
     cSel.onchange = refreshBal;
     refreshBal();
     renderHist();
+    window.addEventListener('storage', function (e) {
+      if (e.key === null || e.key === 'trustUsers' || e.key === 'trustTxns') location.reload();
+    });
   </script>
 </body>
 </html>

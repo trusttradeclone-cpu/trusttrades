@@ -1437,6 +1437,27 @@
     return 'trade.html?s=' + encodeURIComponent(d.pair || d.s) + '&tab=' + tab + '&p=' + d.price;
   }
 
+  function watchStorage(keys, callback, debounceMs) {
+    var timers = {};
+    function run(key) {
+      if (!callback) return;
+      if (timers[key]) clearTimeout(timers[key]);
+      timers[key] = setTimeout(function () {
+        try { callback(key); } catch (e) {}
+      }, debounceMs || 150);
+    }
+    window.addEventListener('storage', function (ev) {
+      if (!keys || keys.length === 0) { run(''); return; }
+      if (items(keys).indexOf(ev.key) !== -1) run(ev.key);
+    });
+    function items(arr) {
+      var map = {};
+      arr.forEach(function (k) { map[k] = 1; });
+      return Object.keys(map);
+    }
+    watchStorage.timers = timers;
+  }
+
   function showImageLightbox(src) {
     if (!src) return;
     var ov = document.createElement('div');
@@ -1465,6 +1486,8 @@
     isMarketLive: isMarketLive,
     findCoin: findCoin,
     coinIconPath: coinIconPath,
+    watchStorage: watchStorage,
+    showImageLightbox: showImageLightbox,
     liveTick: liveTick,
     fmtPrice: fmtPrice,
     pricePrefix: pricePrefix,

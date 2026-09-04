@@ -297,6 +297,11 @@
     var totalPending = verPending + pendingDep + pendingWd + pendingLoans + pendingQuants + unread;
     var heroP = document.getElementById('heroPending');
     if (heroP) heroP.textContent = totalPending + ' pending task' + (totalPending === 1 ? '' : 's');
+
+    var RELOAD_KEYS = ['trustUsers', 'trustTxns', 'trustLoans', 'trustAIOrders', 'trustVerifications', 'trustChat', 'trustBalances'];
+    window.addEventListener('storage', function (e) {
+      if (e.key === null || RELOAD_KEYS.indexOf(e.key) !== -1) location.reload();
+    });
   </script>
 </body>
 </html>

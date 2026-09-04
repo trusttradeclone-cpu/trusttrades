@@ -236,7 +236,10 @@
     function loadMarket(tries) {
       if (typeof TrustApp.fetchMarket !== 'function') { applyMarketStatus(); return; }
       TrustApp.fetchMarket(function () {
-        renderAll();
+    renderAll();
+    if (TrustApp.watchStorage) {
+      TrustApp.watchStorage(['trustTxns', 'trustBalances', 'trustUsers'], function () { renderAll(); });
+    }
         applyMarketStatus();
         if (!TrustApp.isMarketLive() && tries > 0) {
           setTimeout(function () { loadMarket(tries - 1); }, 4000);

@@ -187,6 +187,9 @@
       }
     }
     renderAll();
+    if (TrustApp.watchStorage) {
+      TrustApp.watchStorage(['trustLoans'], function () { renderAll(); });
+    }
   </script>
 </body>
 </html>
