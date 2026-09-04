@@ -257,7 +257,8 @@ textarea.form-input{height:auto;padding:12px 15px;resize:vertical}
 .dep-coin.active .dep-coin-net{color:#2789ef}
 .dep-addr-card{overflow:hidden;border-radius:14px;border:1px solid #e6e9ef;background:#fff}
 .dep-addr-head{display:flex;align-items:center;gap:12px;padding:16px}
-.dep-coin-badge{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px;flex-shrink:0}
+.dep-coin-badge{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px;flex-shrink:0;background:#fff;overflow:hidden}
+.dep-coin-badge img{width:28px;height:28px;object-fit:contain;display:block}
 .dep-addr-headtxt{color:#fff}
 .dep-addr-title{font-size:16px;font-weight:800}
 .dep-addr-net{font-size:12px;opacity:.92;margin-top:2px}

@@ -304,9 +304,10 @@
       if (!box) return;
       var st = COIN_STYLE[coin] || { c: '#64748b', g: '#64748b,#4b5563' };
       var net = a.net || TrustApp.t('funds.mainnet');
+      var iconPath = TrustApp.coinIconPath ? TrustApp.coinIconPath(coin) : 'img/' + coin.toLowerCase() + '.png';
       box.innerHTML = '<div class="dep-addr-card">'
         + '<div class="dep-addr-head" style="background:linear-gradient(135deg,' + st.g + ');">'
-        + '<span class="dep-coin-badge" style="background:rgba(255,255,255,.22);color:#fff;">' + coin.charAt(0) + '</span>'
+        + '<span class="dep-coin-badge"><img src="' + iconPath + '" alt="' + coin + '" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + coin.charAt(0) + '\';"></span>'
         + '<div class="dep-addr-headtxt">'
         + '<div class="dep-addr-title">' + TrustApp.t('funds.depositTitle').replace('{c}', coin) + '</div>'
         + '<div class="dep-addr-net">' + TrustApp.t('funds.network') + ': <b>' + net + '</b><span class="dep-net-tag">' + TrustApp.t('funds.networkOnly').replace('{n}', net) + '</span></div>'
