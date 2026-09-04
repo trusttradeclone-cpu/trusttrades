@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <base href="./">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <meta name="color-scheme" content="light">
@@ -93,6 +94,12 @@
     .chat-att-video{max-width:200px;max-height:200px;border-radius:8px;background:#000}
     .chat-att-file{display:flex;align-items:center;gap:7px;padding:9px 11px;background:#fff;border:1px solid #e0e4ec;border-radius:9px;color:#1652f0;text-decoration:none;font-size:13px;max-width:230px;word-break:break-all}
     .chat-att-file svg{flex:none}
+
+    .img-lightbox-overlay{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.82);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out;animation:lbFadeIn .15s}
+    @keyframes lbFadeIn{from{opacity:0}to{opacity:1}}
+    .img-lightbox-overlay img{max-width:92vw;max-height:88vh;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.45);object-fit:contain;cursor:default}
+    .img-lightbox-close{position:fixed;top:16px;right:20px;width:38px;height:38px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:100000;transition:background .15s}
+    .img-lightbox-close:hover{background:rgba(255,255,255,.3)}
   </style>
 </head>
 <body>
