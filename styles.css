@@ -249,9 +249,10 @@ textarea.form-input{height:auto;padding:12px 15px;resize:vertical}
 .dep-coin{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 8px;border:1.5px solid #e6e9ef;border-radius:14px;cursor:pointer;background:#fff;transition:all .2s;-webkit-user-select:none;user-select:none}
 .dep-coin:hover{border-color:#c9d2e0}
 .dep-coin.active{border-color:#2789ef;background:#eef5ff;box-shadow:0 2px 8px rgba(39,137,239,.12)}
+.dep-coin-head{display:flex;align-items:center;gap:7px;justify-content:center}
 .dep-coin-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px;background:#f1f5f9;overflow:hidden;flex:0 0 30px}
 .dep-coin-icon img{width:22px;height:22px;object-fit:contain;display:block}
-.dep-coin-sym{font-size:12px;font-weight:700;color:#222}
+.dep-coin-sym{font-size:13px;font-weight:700;color:#222}
 .dep-coin-net{font-size:10.5px;color:#8a94a6}
 .dep-coin.active .dep-coin-net{color:#2789ef}
 .dep-addr-card{overflow:hidden;border-radius:14px;border:1px solid #e6e9ef;background:#fff}

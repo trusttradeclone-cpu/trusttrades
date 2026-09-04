@@ -215,8 +215,10 @@
         var net = (addrs[c].net || TrustApp.t('funds.mainnet')).toUpperCase();
         var icon = TrustApp.coinIconPath ? TrustApp.coinIconPath(c) : 'img/' + c.toLowerCase() + '.png';
         return '<div class="dep-coin' + (i === 0 ? ' active' : '') + '" data-c="' + c + '">'
+          + '<div class="dep-coin-head">'
           + '<span class="dep-coin-icon"><img src="' + icon + '" alt="' + c + '" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + c.charAt(0) + '\';this.parentNode.style.background=\'' + st.c + '\';">' + c.charAt(0) + '</span>'
           + '<span class="dep-coin-sym">' + c + '</span>'
+          + '</div>'
           + '<span class="dep-coin-net">' + net + '</span>'
           + '</div>';
       }).join('');
