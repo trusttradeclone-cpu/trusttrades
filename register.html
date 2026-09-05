@@ -44,6 +44,7 @@
             <div class="input-group"><input type="tel" placeholder="Enter your phone number" class="input-field" id="account" data-i18n-ph="reg.phonePlaceholder" required></div>
             <div class="input-group"><input type="password" placeholder="Password" class="input-field" id="password" data-i18n-ph="reg.password" required></div>
             <div class="input-group"><input type="password" placeholder="Confirm Password" class="input-field" id="confirm" data-i18n-ph="reg.confirm" required></div>
+            <div class="input-group"><input type="text" placeholder="Referral code (optional)" class="input-field" id="referral" data-i18n-ph="reg.referral"></div>
             <button type="submit" class="register-button" id="regBtn" data-i18n="reg.register">Register</button>
             <div class="links">
               <a href="login.html" class="link">
@@ -93,7 +94,7 @@
       }
       if (fields[1].value.length < 6) { toast('error', 'Password must be at least 6 characters'); return false; }
       if (fields[1].value !== fields[2].value) { toast('error', 'Passwords do not match'); return false; }
-      var res = TrustApp.register(account, fields[1].value);
+      var res = TrustApp.register(account, fields[1].value, fields[3] ? fields[3].value : '');
       if (!res.ok) { toast('error', res.msg); return false; }
       try {
         localStorage.setItem('trustLoggedIn', '1');

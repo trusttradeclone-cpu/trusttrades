@@ -196,6 +196,7 @@
     }
 
     var uid = TrustApp.getUserId() || guestUid();
+    TrustApp.ensureSupportGreeting(uid);
     var pinnedBottom = true;
 
     var MAX_ATT_BYTES = 1200000;

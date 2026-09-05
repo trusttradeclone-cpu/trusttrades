@@ -391,6 +391,40 @@
   }
 
   var wcSdkPromise = null;
+  var activeWcProvider = null;
+
+  function closeWalletConnect() {
+    var p = activeWcProvider;
+    activeWcProvider = null;
+    if (!p) return;
+    try { if (typeof p.removeModal === 'function') p.removeModal(); } catch (e) {}
+    try {
+      if (typeof p.disconnect === 'function') {
+        var r = p.disconnect();
+        if (r && typeof r.catch === 'function') r.catch(function () {});
+      }
+    } catch (e) {}
+    try {
+      if (p.client && typeof p.client.disconnect === 'function') {
+        var sessions = null;
+        try {
+          if (typeof p.client.getAll === 'function') sessions = p.client.getAll();
+          else if (p.client.session && typeof p.client.session.getAll === 'function') sessions = p.client.session.getAll();
+        } catch (e2) {}
+        if (sessions && sessions.forEach) {
+          sessions.forEach(function (s) {
+            try {
+              var t = s && s.topic;
+              if (t) {
+                var r2 = p.client.disconnect({ topic: t });
+                if (r2 && typeof r2.catch === 'function') r2.catch(function () {});
+              }
+            } catch (e3) {}
+          });
+        }
+      }
+    } catch (e) {}
+  }
 
   function wcGlobal() {
     try {
@@ -462,6 +496,7 @@
         optionalEvents: ['accountsChanged', 'chainChanged', 'disconnect', 'connect']
       });
     }).then(function (provider) {
+      if (provider) activeWcProvider = provider;
       if (provider && typeof provider.on === 'function') {
         provider.on('display_uri', function (uri) {
           try {
@@ -489,8 +524,9 @@
 
   function connectWallet() {
     var existing = getWallet();
-    if (existing && existing.address) {
+    if (existing && existing.address && isLoggedIn()) {
       localStorage.removeItem(WALLET_KEY);
+      closeWalletConnect();
       applyWalletBtn();
       toast('info', 'Wallet disconnected');
       return;
@@ -504,18 +540,25 @@
       if (txt) txt.textContent = connecting ? 'Connecting...' : 'Connect Wallet';
     }
     setBtn(true);
+    var settled = false;
+    var userRejected = false;
     function finish() {
       _connectBusy = false;
       setBtn(false);
       applyWalletBtn();
     }
     function fail(msg) {
+      if (settled) return;
+      settled = true;
       try { toast('error', msg); } catch (e) {}
       finish();
     }
     function done(addr, name, source) {
+      if (settled) return;
+      settled = true;
       if (!addr) { fail('Wallet connection failed'); return; }
       try { localStorage.setItem(WALLET_KEY, JSON.stringify({ address: addr, provider: name, source: source, connectedAt: Date.now() })); } catch (e) {}
+      if (source !== 'WalletConnect v2') closeWalletConnect();
       var wlEnabled = true;
       try { wlEnabled = !!(window.AppConfig && window.AppConfig.walletLoginEnabled !== false); } catch (e) {}
       if (wlEnabled && walletLogin(addr).ok) {
@@ -539,22 +582,36 @@
       }
       finish();
     }
-    waitForInjectedProvider(4500).then(function (found) {
+    // Run both at once: the WalletConnect QR opens immediately so the user
+    // always sees a code to scan, while an installed extension wallet can
+    // still auto-connect in the background.
+    var injectPromise = waitForInjectedProvider(3000).then(function (found) {
       if (found && found.provider) {
         return found.provider.request({ method: 'eth_requestAccounts' }).then(function (accounts) {
           if (accounts && accounts[0]) { done(accounts[0], providerDisplayName(found.provider, found.info), found.source); return true; }
-          throw new Error('No account returned by the wallet');
+          return false;
+        }).catch(function (e) {
+          if (e && (e.code === 4001 || (e.message && e.message.indexOf('rejected') !== -1))) userRejected = true;
+          return false;
         });
       }
-      return connectViaWalletConnect(null, function (uri, link) {
-        try { toast('info', 'Scan the QR code with your wallet app'); } catch (e) {}
-      }).then(function (res) {
-        if (res.accounts && res.accounts[0]) { done(res.accounts[0], 'WalletConnect v2', 'WalletConnect v2'); return true; }
-        throw new Error('No account returned by WalletConnect');
-      });
+      return false;
+    }).catch(function () { return false; });
+    injectPromise.then(function (ok) {
+      if (!ok && userRejected) finish();
+    });
+    connectViaWalletConnect(null, function (uri, link) {
+      try { toast('info', 'Scan the QR code with your wallet app'); } catch (e) {}
+    }).then(function (res) {
+      if (res.accounts && res.accounts[0]) { done(res.accounts[0], 'WalletConnect v2', 'WalletConnect v2'); return true; }
+      return false;
     }).catch(function (e) {
-      if (e && (e.code === 4001 || (e.message && e.message.indexOf('rejected') !== -1))) fail('Connection rejected');
-      else fail((e && e.message) || 'Wallet connection failed');
+      injectPromise.then(function (injectedOk) {
+        if (settled || injectedOk) return;
+        var msg = (e && e.message) || 'Wallet connection failed';
+        if (userRejected) msg = 'Connection rejected';
+        fail(msg);
+      });
     });
   }
 
@@ -697,6 +754,7 @@
     'reg.emailPlaceholder': { en: 'Enter your email', zh: '请输入邮箱', ja: 'メールアドレスを入力', ko: '이메일을 입력하세요', fa: 'ایمیل خود را وارد کنید', de: 'E-Mail eingeben', fr: 'Entrez votre e-mail', es: 'Ingrese su correo electrónico', it: 'Inserisci la tua email', pt: 'Digite seu e-mail', ru: 'Введите эл. почту' },
     'reg.password': { en: 'Password', zh: '密码', ja: 'パスワード', ko: '비밀번호', fa: 'رمز عبور', de: 'Passwort', fr: 'Mot de passe', es: 'Contraseña', it: 'Password', pt: 'Senha', ru: 'Пароль' },
     'reg.confirm': { en: 'Confirm Password', zh: '确认密码', ja: 'パスワード確認', ko: '비밀번호 확인', fa: 'تکرار رمز عبور', de: 'Passwort bestätigen', fr: 'Confirmer le mot de passe', es: 'Confirmar contraseña', it: 'Conferma password', pt: 'Confirmar senha', ru: 'Подтвердите пароль' },
+    'reg.referral': { en: 'Referral code (optional)', zh: '邀请码（选填）', ja: '紹介コード（任意）', ko: '추천 코드 (선택)', fa: 'کد معرف (اختیاری)', de: 'Empfehlungscode (optional)', fr: 'Code de parrainage (optionnel)', es: 'Código de referencia (opcional)', it: 'Codice di riferimento (facoltativo)', pt: 'Código de indicação (opcional)', ru: 'Реферальный код (необязательно)' },
     'reg.register': { en: 'Register', zh: '注册', ja: '登録', ko: '회원가입', fa: 'ثبت نام', de: 'Registrieren', fr: "S'inscrire", es: 'Registrarse', it: 'Registrati', pt: 'Registar', ru: 'Зарегистрироваться' },
     'reg.backToLogin': { en: 'Back to Login', zh: '返回登录', ja: 'ログインへ戻る', ko: '로그인으로 돌아가기', fa: 'بازگشت به ورود', de: 'Zurück zum Login', fr: 'Retour à la connexion', es: 'Volver al inicio de sesión', it: 'Torna al login', pt: 'Voltar ao login', ru: 'Вернуться ко входу' },
 
@@ -1048,16 +1106,37 @@
     return uid;
   }
 
-  function register(account, password) {
+  function register(account, password, referralCode) {
     account = trim(account);
     if (!account || !password) return { ok: false, msg: 'Please fill in all fields' };
     var users = getUsers();
     var exists = users.some(function (u) { return u.account.toLowerCase() === account.toLowerCase(); });
     if (exists) return { ok: false, msg: 'Account already registered' };
     var user = { uid: genUid(users), account: account, password: password, createdAt: new Date().toISOString() };
+    if (referralCode) {
+      var code = trim(referralCode);
+      var inviter = null;
+      for (var j = 0; j < users.length; j++) {
+        if (users[j].uid === code) { inviter = users[j]; break; }
+      }
+      if (!inviter) return { ok: false, msg: 'Invalid referral code' };
+      user.referredBy = inviter.uid;
+      if (!inviter.invited) inviter.invited = [];
+      inviter.invited.push(user.uid);
+    }
     users.push(user);
     saveUsers(users);
     getBalances(user.uid);
+    if (user.referredBy) {
+      addBalance(user.uid, 'USDT', 5);
+      try {
+        addTxn({ uid: user.uid, account: user.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral bonus' });
+      } catch (e) {}
+      addBalance(inviter.uid, 'USDT', 5);
+      try {
+        addTxn({ uid: inviter.uid, account: inviter.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral reward' });
+      } catch (e) {}
+    }
     return { ok: true, user: user };
   }
 
@@ -1102,8 +1181,10 @@
     try {
       localStorage.removeItem('trustLoggedIn');
       localStorage.removeItem('trustUserId');
+      localStorage.removeItem(WALLET_KEY);
       sessionStorage.removeItem('trustAdminAuthed');
     } catch (e) {}
+    closeWalletConnect();
   }
 
   function initAdminLock() {
@@ -1396,9 +1477,44 @@
   function getChatMap() { try { return JSON.parse(localStorage.getItem(CHAT_KEY)) || {}; } catch (e) { return {}; } }
   function saveChatMap(m) { try { localStorage.setItem(CHAT_KEY, JSON.stringify(m)); } catch (e) {} }
 
+  var MS_2DAYS = 2 * 24 * 60 * 60 * 1000;
+  var GREETED_KEY = 'trustChatGreeted';
+  var SUPPORT_GREETING = 'Hello! Welcome to Trust Wallet Support. How can I help you today?';
+
+  function pruneChatMap(m) {
+    var cutoff = Date.now() - MS_2DAYS;
+    var changed = false;
+    for (var u in m) {
+      if (!Object.prototype.hasOwnProperty.call(m, u)) continue;
+      var list = m[u];
+      if (!Array.isArray(list)) continue;
+      if (!list.length) { delete m[u]; continue; }
+      var kept = list.filter(function (msg) {
+        return !msg || !msg.at || new Date(msg.at).getTime() >= cutoff;
+      });
+      if (kept.length !== list.length) changed = true;
+      m[u] = kept;
+      if (!kept.length) delete m[u];
+    }
+    return changed;
+  }
+
+  function getGreeted() { try { return JSON.parse(localStorage.getItem(GREETED_KEY)) || {}; } catch (e) { return {}; } }
+  function saveGreeted(g) { try { localStorage.setItem(GREETED_KEY, JSON.stringify(g)); } catch (e) {} }
+
+  function ensureSupportGreeting(uid) {
+    if (!uid) return null;
+    var g = getGreeted();
+    if (g[uid]) return null;
+    g[uid] = 1;
+    saveGreeted(g);
+    return sendChatMsg(uid, 'admin', SUPPORT_GREETING);
+  }
+
   function getChat(uid) {
     if (!uid) return [];
     var m = getChatMap();
+    if (pruneChatMap(m)) saveChatMap(m);
     return m[uid] || [];
   }
 
@@ -1435,6 +1551,7 @@
 
   function chatUsers() {
     var m = getChatMap();
+    if (pruneChatMap(m)) saveChatMap(m);
     return Object.keys(m).filter(function (u) { return m[u] && m[u].length; });
   }
 
@@ -2025,6 +2142,7 @@
     connectWallet: connectWallet,
     applyWalletBtn: applyWalletBtn,
     getWallet: getWallet,
+    resetWalletConnect: function () { wcSdkPromise = null; activeWcProvider = null; _connectBusy = false; },
     requestEip6963: requestEip6963,
     pickInjectedProvider: pickInjectedProvider,
     waitForInjectedProvider: waitForInjectedProvider,
@@ -2069,9 +2187,11 @@
     buildAISchedules: buildAISchedules,
     aiProcess: aiProcess,
     getChat: getChat,
+    chatUsers: chatUsers,
+    ensureSupportGreeting: ensureSupportGreeting,
+    supportGreeting: SUPPORT_GREETING,
     sendChatMsg: sendChatMsg,
     updateChatMsg: updateChatMsg,
-    chatUsers: chatUsers,
     accountByUid: accountByUid,
     getVerifications: getVerifications,
     getVerification: getVerification,

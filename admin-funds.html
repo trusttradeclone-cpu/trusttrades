@@ -185,7 +185,7 @@
     }
     function renderAll() {
       var txns = TrustApp.getTxns();
-      var deps = txns.filter(function (t) { return t.type === 'deposit'; }).slice(0, 20);
+      var deps = txns.filter(function (t) { return t.type === 'deposit' || t.type === 'referral_bonus'; }).slice(0, 20);
       var wds = txns.filter(function (t) { return t.type === 'withdraw' && t.status === 'pending'; });
       var depPending = txns.filter(function (t) { return t.type === 'deposit' && t.status === 'pending'; }).length;
       var depConfirmed = txns.filter(function (t) { return t.type === 'deposit' && t.status === 'confirmed'; }).length;
@@ -213,6 +213,8 @@
             proof = '<img src="' + esc(t.proof) + '" alt="proof" title="Click to view full image" onclick="TrustApp.showImageLightbox(this.src)" style="width:44px;height:44px;object-fit:cover;border-radius:8px;cursor:zoom-in;border:1px solid var(--border);">';
           } else if (t.proofName || t.proof) {
             proof = '<span class="badge blue">' + esc((t.proofName || t.proof).slice(0, 24)) + '</span>';
+          } else if (t.note) {
+            proof = '<span class="badge blue">' + esc(t.note) + '</span>';
           }
           var usdSub = '<span class="mc-sub">≈ ' + fmtAmt((parseFloat(t.amount) || 0) * usdValue(t.coin), 'USDT') + ' USDT</span>';
           return '<tr data-id="' + esc(t.id) + '"><td><div class="user-cell"><div class="user-ava">' + esc((t.account || '?').charAt(0).toUpperCase()) + '</div><div class="user-meta"><div class="user-name">' + esc(t.account) + '</div><div class="user-uid">' + esc(t.uid) + '</div></div></div></td><td><span class="tag">' + esc(t.coin) + '</span></td><td><span class="money-cell">' + fmtAmt(t.amount, t.coin) + ' ' + esc(t.coin) + usdSub + '</span></td><td>' + proof + '</td><td>' + badgeFor(t) + '</td><td>' + act + '</td></tr>';

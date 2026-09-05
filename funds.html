@@ -376,22 +376,24 @@
       var list = TrustApp.getTxns().filter(function (t) { return t.uid === uid; });
       var stTxt = { pending: TrustApp.t('funds.statusPending'), confirmed: TrustApp.t('funds.statusApproved'), rejected: TrustApp.t('funds.statusRejected') };
       var stCls = { pending: 0, confirmed: 1, rejected: 2 };
-      function recs(boxId, type) {
+      function recs(boxId, types) {
+        var typeList = Array.isArray(types) ? types : [types];
         var box = document.getElementById(boxId);
-        var rows = list.filter(function (x) { return x.type === type; });
+        var rows = list.filter(function (x) { return typeList.indexOf(x.type) !== -1; });
         if (!rows.length) { box.innerHTML = '<div class="empty-text" style="padding:20px 0;">' + TrustApp.t('funds.noRecords') + '</div>'; return; }
         box.innerHTML = rows.map(function (r) {
-          var sign = type === 'deposit' ? '+' : '-';
+          var credit = typeList.indexOf(r.type) !== -1;
+          var sign = credit ? '+' : '-';
           var amtTxt = sign + fmtAmt(r.amount, r.coin);
           return '<div class="record-item">'
-            + '<div class="record-header"><span class="record-amount ' + (type === 'deposit' ? 'credit' : 'debit') + '">' + amtTxt + ' ' + r.coin + '</span>'
+            + '<div class="record-header"><span class="record-amount ' + (credit ? 'credit' : 'debit') + '">' + amtTxt + ' ' + r.coin + '</span>'
             + '<span class="status-pill status-' + stCls[r.status] + '">' + stTxt[r.status] + '</span></div>'
-            + '<div class="record-info">' + TrustApp.t('funds.orderNo') + r.id + '</div>'
+            + '<div class="record-info">' + TrustApp.t('funds.orderNo') + r.id + (r.note ? ' &#183; ' + r.note : '') + '</div>'
             + '<div class="record-time">' + (r.createdAt || '').replace('T', ' ').slice(0, 16) + '</div>'
             + '</div>';
         }).join('');
       }
-      recs('depRecords', 'deposit');
+      recs('depRecords', ['deposit', 'referral_bonus']);
       recs('wdRecords', 'withdraw');
     }
 
