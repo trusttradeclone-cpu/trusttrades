@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trust — export local data</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    .card { max-width: 640px; margin: 48px auto; background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 28px; }
+    h1 { margin: 0 0 6px; font-size: 22px; color: #fff; }
+    p { margin: 6px 0 18px; color: #94a3b8; line-height: 1.5; }
+    button { padding: 10px 16px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; margin-right: 8px; }
+    #status { margin-top: 14px; font-size: 13px; color: #4ade80; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Export local data</h1>
+    <p>Downloads all Trust data currently stored in this browser (users, balances, transactions, chat, settings…) as a <code>trust-backup.json</code> file. You can then upload it to Supabase with the Node import tool in <code>scripts/import-local.mjs</code>.</p>
+    <button onclick="download()">Download trust-backup.json</button>
+    <div id="status"></div>
+  </div>
+  <script>
+    function download() {
+      var map = {};
+      var keys = ['trustUsers','trustBalances','trustTxns','trustLoans','trustTrades','trustOrders','trustAIOrders','trustChat','trustChatGreeted','trustVerifications','trustCoinAddresses','trustProfitMode','trustAppConfig','trustWallet','trustLoggedIn','trustUserId','trustGuestUid','selectedLanguage'];
+      keys.forEach(function (k) {
+        var v = null;
+        try { v = localStorage.getItem(k); } catch (e) { v = null; }
+        if (v != null) map[k] = (function () { try { return JSON.parse(v); } catch (e) { return v; } })();
+      });
+      var blob = new Blob([JSON.stringify({ app: 'trustcom-clone', exportedAt: new Date().toISOString(), data: map }, null, 2)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'trust-backup.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      document.getElementById('status').textContent = 'Exported ' + Object.keys(map).length + ' keys.';
+    }
+  </script>
+</body>
+</html>

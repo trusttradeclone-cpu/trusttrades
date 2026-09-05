@@ -2,6 +2,12 @@
 (function (global) {
   'use strict';
 
+  function dbSync(key) {
+    try {
+      if (global.DB && global.DB.ENABLED && typeof global.DB.enqueue === 'function') global.DB.enqueue(key);
+    } catch (e) {}
+  }
+
   var DEFAULT_CONFIG = {
     apiBaseUrl: 'https://trustcom.vip',
     appTitle: 'Trust',
@@ -94,6 +100,7 @@
     });
     try { localStorage.setItem('trustAppConfig', JSON.stringify(out)); } catch (e) {}
     global.AppConfig = getConfig();
+    dbSync('trustAppConfig');
   }
 
   function resetConfig() {
@@ -1096,6 +1103,7 @@
 
   function saveUsers(users) {
     try { localStorage.setItem(USERS_KEY, JSON.stringify(users)); } catch (e) {}
+    dbSync(USERS_KEY);
   }
 
   function genUid(users) {
@@ -1220,7 +1228,7 @@
   var COIN_KEYS = ['USDT', 'BTC', 'ETH', 'XRP', 'LTC', 'USDC', 'TON', 'DOGE', 'BNB', 'ADA', 'SOL', 'TRX', 'UNI', 'AVAX', 'DOT', 'LINK', 'BCH', 'BSV', 'IOTA', 'ETC', 'TUSD', 'XAU', 'XAG', 'XPD', 'XPT'];
 
   function getBalanceMap() { try { return JSON.parse(localStorage.getItem(BAL_KEY)) || {}; } catch (e) { return {}; } }
-  function saveBalanceMap(m) { try { localStorage.setItem(BAL_KEY, JSON.stringify(m)); } catch (e) {} }
+  function saveBalanceMap(m) { try { localStorage.setItem(BAL_KEY, JSON.stringify(m)); } catch (e) {} dbSync(BAL_KEY); }
 
   function getBalances(uid) {
     if (!uid) return {};
@@ -1251,7 +1259,7 @@
   }
 
   function getTxns() { try { return JSON.parse(localStorage.getItem(TXN_KEY)) || []; } catch (e) { return []; } }
-  function saveTxns(list) { try { localStorage.setItem(TXN_KEY, JSON.stringify(list)); } catch (e) {} }
+  function saveTxns(list) { try { localStorage.setItem(TXN_KEY, JSON.stringify(list)); } catch (e) {} dbSync(TXN_KEY); }
 
   function genId(prefix) {
     return prefix + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1000);
@@ -1290,7 +1298,7 @@
   var LOAN_KEY = 'trustLoans';
 
   function getLoans() { try { return JSON.parse(localStorage.getItem(LOAN_KEY)) || []; } catch (e) { return []; } }
-  function saveLoans(list) { try { localStorage.setItem(LOAN_KEY, JSON.stringify(list)); } catch (e) {} }
+  function saveLoans(list) { try { localStorage.setItem(LOAN_KEY, JSON.stringify(list)); } catch (e) {} dbSync(LOAN_KEY); }
 
   function getLoansForUser(uid) {
     if (!uid) return [];
@@ -1326,7 +1334,7 @@
   }
 
   function getTrades() { try { return JSON.parse(localStorage.getItem(TRADE_KEY)) || []; } catch (e) { return []; } }
-  function saveTrades(list) { try { localStorage.setItem(TRADE_KEY, JSON.stringify(list)); } catch (e) {} }
+  function saveTrades(list) { try { localStorage.setItem(TRADE_KEY, JSON.stringify(list)); } catch (e) {} dbSync(TRADE_KEY); }
 
   function addTrade(obj) {
     var t = {
@@ -1364,7 +1372,7 @@
 
   var AI_KEY = 'trustAIOrders';
   function getAIOrders() { try { return JSON.parse(localStorage.getItem(AI_KEY)) || []; } catch (e) { return []; } }
-  function saveAIOrders(list) { try { localStorage.setItem(AI_KEY, JSON.stringify(list)); } catch (e) {} }
+  function saveAIOrders(list) { try { localStorage.setItem(AI_KEY, JSON.stringify(list)); } catch (e) {} dbSync(AI_KEY); }
 
   function addAIOrder(obj) {
     var o = {
@@ -1475,7 +1483,7 @@
   }
 
   function getChatMap() { try { return JSON.parse(localStorage.getItem(CHAT_KEY)) || {}; } catch (e) { return {}; } }
-  function saveChatMap(m) { try { localStorage.setItem(CHAT_KEY, JSON.stringify(m)); } catch (e) {} }
+  function saveChatMap(m) { try { localStorage.setItem(CHAT_KEY, JSON.stringify(m)); } catch (e) {} dbSync(CHAT_KEY); }
 
   var MS_2DAYS = 2 * 24 * 60 * 60 * 1000;
   var GREETED_KEY = 'trustChatGreeted';
@@ -1500,7 +1508,7 @@
   }
 
   function getGreeted() { try { return JSON.parse(localStorage.getItem(GREETED_KEY)) || {}; } catch (e) { return {}; } }
-  function saveGreeted(g) { try { localStorage.setItem(GREETED_KEY, JSON.stringify(g)); } catch (e) {} }
+  function saveGreeted(g) { try { localStorage.setItem(GREETED_KEY, JSON.stringify(g)); } catch (e) {} dbSync(GREETED_KEY); }
 
   function ensureSupportGreeting(uid) {
     if (!uid) return null;
@@ -1659,6 +1667,7 @@
     var m = getProfitMap();
     if (on) m[uid] = true; else delete m[uid];
     try { localStorage.setItem(PROFIT_KEY, JSON.stringify(m)); } catch (e) { return { ok: false, msg: 'Could not save' }; }
+    dbSync(PROFIT_KEY);
     return { ok: true };
   }
 
@@ -1686,6 +1695,7 @@
     var m = getCoinAddresses();
     m[coin] = { net: net.slice(0, 40), addr: addr.slice(0, 500) };
     try { localStorage.setItem(COIN_ADDR_KEY, JSON.stringify(m)); } catch (e) { return { ok: false, msg: 'Could not save (storage full?)' }; }
+    dbSync(COIN_ADDR_KEY);
     return { ok: true };
   }
 
@@ -1693,6 +1703,7 @@
     var m = getCoinAddresses();
     delete m[coin];
     try { localStorage.setItem(COIN_ADDR_KEY, JSON.stringify(m)); } catch (e) {}
+    dbSync(COIN_ADDR_KEY);
     return { ok: true };
   }
 
@@ -1701,7 +1712,7 @@
   }
 
   function saveVerifications(m) {
-    try { localStorage.setItem(VER_KEY, JSON.stringify(m)); return true; } catch (e) { return false; }
+    try { localStorage.setItem(VER_KEY, JSON.stringify(m)); dbSync(VER_KEY); return true; } catch (e) { return false; }
   }
 
   function getVerification(uid) {
