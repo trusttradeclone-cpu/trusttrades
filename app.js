@@ -21,7 +21,9 @@
     minWithdrawAmount: 20,
     aiQuantAutoApproveMin: 1,
     aiQuantSettleIntervalHours: 24,
-    customerServiceUrl: 'service.html'
+    customerServiceUrl: 'service.html',
+    walletConnectProjectId: '',
+    walletConnectRedirectTrust: true
   };
 
   var DEFAULT_COIN_ADDRESSES = {
@@ -260,8 +262,232 @@
     return h;
   }
 
+  var WC_FALLBACK_PROJECT_ID = '8f0b6d9a5f4a7274bf5518ebb1948e3f';
+
+  function wcProjectId() {
+    try {
+      var id = String((AppConfig && AppConfig.walletConnectProjectId) || '').trim();
+      if (id && id.length >= 10 && id !== 'YOUR_PROJECT_ID') return id;
+      var saved = localStorage.getItem('WC_PROJECT_ID');
+      if (saved && saved.length >= 10) return saved;
+    } catch (e) {}
+    return WC_FALLBACK_PROJECT_ID;
+  }
+
+  var wcAnnounced = {};
+  try {
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('eip6963:announceProvider', function (e) {
+        var d = e.detail;
+        if (d && d.info && d.provider) {
+          try { wcAnnounced[String(d.info.uuid || (d.info.rdns || d.info.name) || Math.random())] = { info: d.info, provider: d.provider }; } catch (e2) {}
+        }
+      });
+    }
+  } catch (e) {}
+
+  function requestEip6963() {
+    try { if (typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (e) {}
+  }
+
+  function eip6963List() {
+    return Object.keys(wcAnnounced).map(function (k) { return wcAnnounced[k]; });
+  }
+
+  function providerRequestable(p) {
+    return !!(p && typeof p.request === 'function');
+  }
+
+  function isTrustProvider(p) {
+    return !!(p && (p.isTrust || p.isTrustWallet || p.isTrustWalletProvider || p.isTrustWalletProviderInjected));
+  }
+
+  function providerInfoMatchesTrust(info) {
+    if (!info) return false;
+    var n = String(info.name || '').toLowerCase();
+    var r = String(info.rdns || '').toLowerCase();
+    return r === 'com.trustwallet.app' || r.indexOf('trustwallet') !== -1 || r.indexOf('trust.wallet') !== -1 || n.indexOf('trust') !== -1;
+  }
+
+  function providerDisplayName(p, info) {
+    if (info && info.name) return String(info.name);
+    if (!p) return 'Unknown';
+    if (isTrustProvider(p)) return 'Trust Wallet';
+    if (p.isMetaMask) return 'MetaMask';
+    if (p.isOkxWallet || p.isOKExWallet) return 'OKX Wallet';
+    if (p.isTokenPocket) return 'TokenPocket';
+    if (p.isCoinbaseWallet) return 'Coinbase Wallet';
+    if (p.isBitKeep || p.isBitgetWallet) return 'Bitget / BitKeep Wallet';
+    if (p.isImToken) return 'imToken';
+    if (p.isWalletConnect) return 'WalletConnect v2';
+    return 'EVM Wallet';
+  }
+
+  function firstTrustEip6963() {
+    var list = eip6963List();
+    for (var i = 0; i < list.length; i++) {
+      if (providerInfoMatchesTrust(list[i].info) && providerRequestable(list[i].provider)) {
+        return { provider: list[i].provider, source: 'EIP-6963 Trust provider', info: list[i].info };
+      }
+    }
+    return null;
+  }
+
+  function firstEip6963() {
+    var list = eip6963List();
+    return list.length ? { provider: list[0].provider, source: 'EIP-6963 first provider', info: list[0].info } : null;
+  }
+
+  function pickInjectedProvider() {
+    var t = firstTrustEip6963();
+    if (t) return t;
+    try {
+      if (window.trustwallet && window.trustwallet.ethereum && providerRequestable(window.trustwallet.ethereum)) {
+        return { provider: window.trustwallet.ethereum, source: 'window.trustwallet.ethereum', info: { name: 'Trust Wallet' } };
+      }
+    } catch (e) {}
+    try {
+      if (window.ethereum && Array.isArray(window.ethereum.providers)) {
+        var arr = window.ethereum.providers;
+        for (var i = 0; i < arr.length; i++) {
+          if (isTrustProvider(arr[i]) && providerRequestable(arr[i])) return { provider: arr[i], source: 'window.ethereum.providers Trust', info: { name: 'Trust Wallet' } };
+        }
+        var e1 = firstEip6963();
+        if (e1 && providerRequestable(e1.provider)) return e1;
+        for (var j = 0; j < arr.length; j++) {
+          if (providerRequestable(arr[j])) return { provider: arr[j], source: 'window.ethereum.providers first available', info: null };
+        }
+      }
+    } catch (e) {}
+    try { if (window.ethereum && providerRequestable(window.ethereum)) return { provider: window.ethereum, source: 'window.ethereum', info: null }; } catch (e) {}
+    var e2 = firstEip6963();
+    if (e2 && providerRequestable(e2.provider)) return e2;
+    try {
+      if (window.okxwallet) {
+        if (window.okxwallet.ethereum && providerRequestable(window.okxwallet.ethereum)) {
+          return { provider: window.okxwallet.ethereum, source: 'window.okxwallet.ethereum', info: { name: 'OKX Wallet' } };
+        }
+        if (providerRequestable(window.okxwallet)) return { provider: window.okxwallet, source: 'window.okxwallet', info: { name: 'OKX Wallet' } };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function waitForInjectedProvider(timeoutMs) {
+    requestEip6963();
+    return new Promise(function (resolve) {
+      var started = Date.now();
+      (function poll() {
+        var p = pickInjectedProvider();
+        if (p) return resolve(p);
+        if (Date.now() - started > (timeoutMs || 4500)) return resolve(null);
+        setTimeout(poll, 120);
+      })();
+    });
+  }
+
+  function isMobileUA() {
+    try { return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''); } catch (e) { return false; }
+  }
+
+  var wcSdkPromise = null;
+
+  function wcGlobal() {
+    try {
+      var w = window, g = w.global || w;
+      var a = [w['@walletconnect/ethereum-provider'], g['@walletconnect/ethereum-provider'], w.WalletConnectEthereumProvider, g.WalletConnectEthereumProvider, w.EthereumProvider, g.EthereumProvider];
+      for (var i = 0; i < a.length; i++) {
+        var e = a[i];
+        if (!e) continue;
+        if (e.EthereumProvider && typeof e.EthereumProvider.init === 'function') return e.EthereumProvider;
+        if (e.default && e.default.EthereumProvider && typeof e.default.EthereumProvider.init === 'function') return e.default.EthereumProvider;
+        if (e.default && typeof e.default.init === 'function') return e.default;
+        if (typeof e.init === 'function') return e;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function wcSdk() {
+    if (wcSdkPromise) return wcSdkPromise;
+    var pre = wcGlobal();
+    if (pre) { wcSdkPromise = Promise.resolve(pre); return wcSdkPromise; }
+    var candidates = [
+      'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.23.9/dist/index.umd.js',
+      'https://unpkg.com/@walletconnect/ethereum-provider@2.23.9/dist/index.umd.js',
+      'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.10.0/dist/index.umd.js',
+      'https://unpkg.com/@walletconnect/ethereum-provider@2.10.0/dist/index.umd.js'
+    ];
+    wcSdkPromise = new Promise(function (resolve, reject) {
+      (function tryNext(i) {
+        if (i >= candidates.length) { reject(new Error('Failed to load WalletConnect SDK')); return; }
+        var src = candidates[i];
+        var existing = document.querySelector('script[data-wc-src="' + src + '"]');
+        if (existing && existing.getAttribute('data-loaded') === '1') { var g0 = wcGlobal(); if (g0) return resolve(g0); }
+        var sc = document.createElement('script');
+        sc.src = src;
+        sc.async = true;
+        sc.defer = true;
+        sc.crossOrigin = 'anonymous';
+        sc.setAttribute('data-wc-src', src);
+        sc.onload = function () {
+          sc.setAttribute('data-loaded', '1');
+          var g = wcGlobal();
+          if (g) resolve(g); else tryNext(i + 1);
+        };
+        sc.onerror = function () { tryNext(i + 1); };
+        document.head.appendChild(sc);
+      })(0);
+    });
+    return wcSdkPromise;
+  }
+
+  function connectViaWalletConnect(onUri, onDisplayUri) {
+    var id = wcProjectId();
+    var origin = window.location.origin;
+    if (!origin || origin === 'null') origin = 'https://example.com';
+    return wcSdk().then(function (Sdk) {
+      return Sdk.init({
+        projectId: id,
+        chains: [1],
+        optionalChains: [1, 42161, 10, 137, 56, 8453, 43114, 250, 25, 100, 1284, 1285, 1313161554],
+        metadata: {
+          name: (AppConfig && AppConfig.appTitle) || document.title || 'Trust',
+          description: 'Trust Wallet EIP-6963 + WalletConnect v2',
+          url: origin,
+          icons: [origin + '/favicon.ico']
+        },
+        showQrModal: true,
+        optionalMethods: ['eth_accounts', 'eth_requestAccounts', 'eth_sendTransaction', 'personal_sign', 'eth_sign', 'eth_signTypedData', 'eth_signTypedData_v4', 'wallet_switchEthereumChain', 'wallet_addEthereumChain'],
+        optionalEvents: ['accountsChanged', 'chainChanged', 'disconnect', 'connect']
+      });
+    }).then(function (provider) {
+      if (provider && typeof provider.on === 'function') {
+        provider.on('display_uri', function (uri) {
+          try {
+            var link = 'https://link.trustwallet.com/wc?uri=' + encodeURIComponent(uri);
+            if (typeof onDisplayUri === 'function') onDisplayUri(uri, link);
+            var redirect = true;
+            try { redirect = (window.AppConfig && window.AppConfig.walletConnectRedirectTrust !== false); } catch (e) {}
+            if (redirect && isMobileUA()) setTimeout(function () { try { window.location.href = link; } catch (e) {} }, 300);
+          } catch (e) {}
+        });
+      }
+      return provider;
+    }).then(function (provider) {
+      if (provider && typeof provider.enable === 'function') {
+        return provider.enable().then(function (accounts) { return { provider: provider, accounts: accounts || [] }; });
+      }
+      if (provider && typeof provider.request === 'function') {
+        return provider.request({ method: 'eth_requestAccounts' }).then(function (accounts) { return { provider: provider, accounts: accounts || [] }; });
+      }
+      throw new Error('WalletConnect provider not ready');
+    });
+  }
+
+  var _connectBusy = false;
+
   function connectWallet() {
-    var t = document.getElementById('walletText');
     var existing = getWallet();
     if (existing && existing.address) {
       localStorage.removeItem(WALLET_KEY);
@@ -269,20 +495,67 @@
       toast('info', 'Wallet disconnected');
       return;
     }
-    if (t) t.textContent = 'Connecting...';
-    function done(addr) {
-      if (!addr) { toast('error', 'Wallet connection failed'); if (t) resetWalletText(t); return; }
-      try { localStorage.setItem(WALLET_KEY, JSON.stringify({ address: addr, connectedAt: Date.now() })); } catch (e) {}
-      toast('success', 'Wallet connected: ' + addr.slice(0, 6) + '...' + addr.slice(-4));
+    if (_connectBusy) return;
+    _connectBusy = true;
+    function setBtn(connecting) {
+      var btn = document.getElementById('walletBtn');
+      var txt = document.getElementById('walletText');
+      if (btn) btn.disabled = connecting;
+      if (txt) txt.textContent = connecting ? 'Connecting...' : 'Connect Wallet';
+    }
+    setBtn(true);
+    function finish() {
+      _connectBusy = false;
+      setBtn(false);
       applyWalletBtn();
     }
-    if (window.ethereum && window.ethereum.request) {
-      window.ethereum.request({ method: 'eth_requestAccounts' }).then(function (accounts) {
-        if (accounts && accounts[0]) done(accounts[0]); else done(null);
-      }).catch(function () { done(null); });
-    } else {
-      setTimeout(function () { done(genWalletAddress()); }, 600);
+    function fail(msg) {
+      try { toast('error', msg); } catch (e) {}
+      finish();
     }
+    function done(addr, name, source) {
+      if (!addr) { fail('Wallet connection failed'); return; }
+      try { localStorage.setItem(WALLET_KEY, JSON.stringify({ address: addr, provider: name, source: source, connectedAt: Date.now() })); } catch (e) {}
+      var wlEnabled = true;
+      try { wlEnabled = !!(window.AppConfig && window.AppConfig.walletLoginEnabled !== false); } catch (e) {}
+      if (wlEnabled && walletLogin(addr).ok) {
+        try { toast('success', t('wallet.loginSuccess') || 'Wallet login successful'); } catch (e) {}
+        setTimeout(function () {
+          try {
+            var r = '';
+            var qs = window.location.search;
+            if (qs && qs.indexOf('r=') !== -1) {
+              var parts = qs.replace(/^\?/, '').split('&');
+              for (var i = 0; i < parts.length; i++) {
+                var kv = parts[i].split('=');
+                if (kv[0] === 'r') r = decodeURIComponent(kv[1] || '');
+              }
+            }
+            window.location.href = r || 'index.html';
+          } catch (e) {}
+        }, 1000);
+      } else {
+        try { toast('success', (name || 'Wallet') + ' connected: ' + addr.slice(0, 6) + '...' + addr.slice(-4)); } catch (e) {}
+      }
+      finish();
+    }
+    waitForInjectedProvider(4500).then(function (found) {
+      if (found && found.provider) {
+        return found.provider.request({ method: 'eth_requestAccounts' }).then(function (accounts) {
+          if (accounts && accounts[0]) { done(accounts[0], providerDisplayName(found.provider, found.info), found.source); return true; }
+          throw new Error('No account returned by the wallet');
+        });
+      }
+      return connectViaWalletConnect(null, function (uri, link) {
+        try { toast('info', 'Scan the QR code with your wallet app'); } catch (e) {}
+      }).then(function (res) {
+        if (res.accounts && res.accounts[0]) { done(res.accounts[0], 'WalletConnect v2', 'WalletConnect v2'); return true; }
+        throw new Error('No account returned by WalletConnect');
+      });
+    }).catch(function (e) {
+      if (e && (e.code === 4001 || (e.message && e.message.indexOf('rejected') !== -1))) fail('Connection rejected');
+      else fail((e && e.message) || 'Wallet connection failed');
+    });
   }
 
   function resetWalletText(el) {
@@ -293,6 +566,7 @@
     var w = getWallet();
     var btn = document.getElementById('walletBtn');
     var txt = document.getElementById('walletText');
+    if (btn) btn.disabled = false;
     if (w) {
       if (btn) btn.classList.add('connected');
       if (txt) txt.textContent = w.address.slice(0, 6) + '...' + w.address.slice(-4);
@@ -382,6 +656,7 @@
   var I18N = {
     /* ---- common ---- */
     'common.connectWallet': { en: 'Connect Wallet', zh: '连接钱包', ja: 'ウォレット接続', ko: '지갑 연결', fa: 'اتصال کیف پول', de: 'Wallet verbinden', fr: 'Connecter le portefeuille', es: 'Conectar billetera', it: 'Collega il portafoglio', pt: 'Conectar carteira', ru: 'Подключить кошелек' },
+    'wallet.loginSuccess': { en: 'Wallet login successful', zh: '钱包登录成功', ja: 'ウォレットログイン成功', ko: '지갑 로그인 성공', fa: 'ورود کیف پول موفق', de: 'Wallet-Login erfolgreich', fr: 'Connexion du portefeuille réussie', es: 'Inicio de sesión con billetera exitoso', it: 'Accesso dal portafoglio riuscito', pt: 'Login da carteira bem-sucedido', ru: 'Вход через кошелек выполнен' },
     'common.onlineService': { en: 'Online Service', zh: '在线客服', ja: 'オンラインサポート', ko: '온라인 서비스', fa: 'خدمات آنلاین', de: 'Online-Service', fr: 'Service en ligne', es: 'Servicio en línea', it: 'Servizio online', pt: 'Atendimento online', ru: 'Онлайн-сервис' },
     'common.back': { en: 'Back', zh: '返回', ja: '戻る', ko: '뒤로', fa: 'بازگشت', de: 'Zurück', fr: 'Retour', es: 'Atrás', it: 'Indietro', pt: 'Voltar', ru: 'Назад' },
     'common.all': { en: 'All', zh: '全部', ja: 'すべて', ko: '전체', fa: 'همه', de: 'Alle', fr: 'Tout', es: 'Todo', it: 'Tutto', pt: 'Tudo', ru: 'Все' },
@@ -797,6 +1072,25 @@
     if (!user) return { ok: false, msg: 'Account not found' };
     if (user.password !== password) return { ok: false, msg: 'Incorrect password' };
     if (user.status === 'inactive') return { ok: false, msg: 'Account has been deactivated' };
+    try {
+      localStorage.setItem('trustLoggedIn', '1');
+      localStorage.setItem('trustUserId', user.uid);
+    } catch (e) {}
+    return { ok: true, user: user };
+  }
+
+  function walletLogin(address) {
+    if (!address) return { ok: false, msg: 'Invalid wallet address' };
+    var users = getUsers();
+    var user = null;
+    for (var i = 0; i < users.length; i++) {
+      if (users[i].account && users[i].account.toLowerCase() === address.toLowerCase()) { user = users[i]; break; }
+    }
+    if (!user) {
+      user = { uid: genUid(users), account: address, password: '', isWallet: true, createdAt: new Date().toISOString() };
+      users.push(user);
+      saveUsers(users);
+    }
     try {
       localStorage.setItem('trustLoggedIn', '1');
       localStorage.setItem('trustUserId', user.uid);
@@ -1731,6 +2025,11 @@
     connectWallet: connectWallet,
     applyWalletBtn: applyWalletBtn,
     getWallet: getWallet,
+    requestEip6963: requestEip6963,
+    pickInjectedProvider: pickInjectedProvider,
+    waitForInjectedProvider: waitForInjectedProvider,
+    connectViaWalletConnect: connectViaWalletConnect,
+    wcProjectId: wcProjectId,
     t: t,
     applyI18n: applyI18n,
     setLang: setLang,
@@ -1739,6 +2038,7 @@
     isLoggedIn: isLoggedIn,
     register: register,
     login: login,
+    walletLogin: walletLogin,
     logout: logout,
     changePassword: changePassword,
     changeAdminPassword: changeAdminPassword,
