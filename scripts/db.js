@@ -508,10 +508,10 @@
           if (raw == null) return;
           self.pending[id] = true;
           var op = id === 'chat' ? self.upsertChatMerged(raw) : self.upsertBlob(id, raw);
-          // deliver instantly over realtime before/while persisting to the blob
-          self.broadcastBlob(id);
+          // broadcast AFTER the Supabase write succeeds so receivers pull fresh data
           op.then(function () {
             delete self.pending[id];
+            self.broadcastBlob(id);
           }, function () { delete self.pending[id]; });
         }, id === 'chat' ? 150 : 400);
       };

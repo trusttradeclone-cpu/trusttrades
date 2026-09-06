@@ -291,6 +291,12 @@
       TrustApp.watchStorage(['trustUsers', 'trustBalances', 'trustVerifications'], function () { renderUsers(); });
     window.addEventListener('trustver', renderUsers);
     }
+    window.addEventListener('trustsync:users', function () {
+      if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { renderUsers(); });
+    });
+    window.addEventListener('trustsync:balances', function () {
+      if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { renderUsers(); });
+    });
     setInterval(renderUsers, 5000);
     var searchBox = document.getElementById('userSearch');
     searchBox.addEventListener('input', function () {
