@@ -184,6 +184,10 @@
     var editingMid = null;
     var pinnedBottom = true;
 
+    function conversationVisible() {
+      return window.innerWidth > 640 || document.body.classList.contains('chat-open');
+    }
+
     function buildList() {
       var box = document.getElementById('convList');
       var seen = {};
@@ -225,11 +229,13 @@
     document.getElementById('convList').addEventListener('click', function (e) {
       var item = e.target.closest ? e.target.closest('.conv-item') : null;
       if (item) {
-        currentUid = item.getAttribute('data-uid');
+        var uid = item.getAttribute('data-uid');
+        currentUid = uid;
+        document.body.classList.add('chat-open');
+        if (conversationVisible()) TrustApp.markChatSeen(currentUid);
         buildList();
         pinnedBottom = true;
         renderThread();
-        document.body.classList.add('chat-open');
       }
     });
     var chatBack = document.getElementById('chatBack');
@@ -327,9 +333,9 @@
       }
     });
     function refresh() {
+      if (currentUid && conversationVisible()) TrustApp.markChatSeen(currentUid);
       buildList();
       renderThread();
-      if (currentUid) TrustApp.markChatSeen(currentUid);
     }
 
     var MAX_ATT_BYTES = 1200000;

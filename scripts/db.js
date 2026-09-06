@@ -105,25 +105,35 @@
 
     // merge two {uid: [msgs]} chat maps, messages unique by mid, ordered oldest->newest.
     // when the same mid exists on both sides keep the copy that has been deleted /
-    // seen, so tombstones and read-state are never lost in a merge.
+    // seen, so tombstones and read-state are never lost in a merge; if both copies
+    // are equally healthy, the newest edit (editedAt) wins so edits propagate to
+    // every device instead of silently losing to a device's stale local copy.
     mergeChatMaps: function (baseObj, extraObj) {
       var out = {};
       var keys = {};
       Object.keys(baseObj || {}).forEach(function (k) { keys[k] = 1; });
       Object.keys(extraObj || {}).forEach(function (k) { keys[k] = 1; });
+      var better = function (cur, m) {
+        var rc = (cur && cur.deleted ? 2 : 0) + (cur && cur.seen ? 1 : 0);
+        var rm = (m && m.deleted ? 2 : 0) + (m && m.seen ? 1 : 0);
+        if (rm !== rc) return rm > rc ? m : cur;
+        var ea = (cur && cur.editedAt) || '';
+        var eb = (m && m.editedAt) || '';
+        if (ea !== eb) return eb > ea ? m : cur;
+        return cur;
+      };
       Object.keys(keys).forEach(function (k) {
         var a = baseObj[k] || [];
         var b = (extraObj && extraObj[k]) || [];
         var idxByMid = {};
         var merged = [];
-        var rank = function (m) { return (m && m.deleted ? 2 : 0) + (m && m.seen ? 1 : 0); };
         a.concat(b).forEach(function (m) {
           if (!m || !m.mid) return;
           if (idxByMid[m.mid] === undefined) {
             idxByMid[m.mid] = merged.length;
             merged.push(m);
-          } else if (rank(m) > rank(merged[idxByMid[m.mid]])) {
-            merged[idxByMid[m.mid]] = m;
+          } else {
+            merged[idxByMid[m.mid]] = better(merged[idxByMid[m.mid]], m);
           }
         });
         merged.sort(function (x, y) {
