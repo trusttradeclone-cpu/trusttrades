@@ -187,6 +187,18 @@
       renderStatus();
     };
     setInterval(renderStatus, 4000);
+    window.addEventListener('trustver', renderStatus);
+    window.addEventListener('storage', function (e) {
+      if (e.key === 'trustVerifications' || e.key === null) renderStatus();
+    });
+    var verSyncBusy = false;
+    var verSyncDone = function () { verSyncBusy = false; };
+    setInterval(function () {
+      if (document.hidden || verSyncBusy) return;
+      if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
+      verSyncBusy = true;
+      DB.pullBlob('verifications').then(renderStatus).then(verSyncDone, verSyncDone);
+    }, 1000);
   </script>
 </body>
 </html>

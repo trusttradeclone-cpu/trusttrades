@@ -383,16 +383,31 @@
       renderAdvList();
     }
 
+    function refreshAll() {
+      renderStats();
+      renderFilters();
+      renderList();
+      renderAdvList();
+    }
+
     TrustApp.initAdminLock();
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
-    renderStats();
-    renderFilters();
-    renderList();
-    renderAdvList();
-    setInterval(function () { renderStats(); renderFilters(); renderList(); renderAdvList(); }, 3000);
+    refreshAll();
+    setInterval(refreshAll, 3000);
     window.addEventListener('storage', function (e) {
-      if (e.key === 'trustVerifications' || e.key === null) { renderStats(); renderFilters(); renderList(); renderAdvList(); }
+      if (e.key === 'trustVerifications' || e.key === null) refreshAll();
     });
+    window.addEventListener('trustver', refreshAll);
+    // fast verifications channel: pull only this blob ~1s so new requests and
+    // status changes appear without waiting for the 5s whole-app poll
+    var verSyncBusy = false;
+    var verSyncDone = function () { verSyncBusy = false; };
+    setInterval(function () {
+      if (document.hidden || verSyncBusy) return;
+      if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
+      verSyncBusy = true;
+      DB.pullBlob('verifications').then(refreshAll).then(verSyncDone, verSyncDone);
+    }, 1000);
   </script>
 </body>
 </html>

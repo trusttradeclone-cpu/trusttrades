@@ -288,7 +288,8 @@
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     renderUsers();
     if (TrustApp.watchStorage) {
-      TrustApp.watchStorage(['trustUsers', 'trustBalances'], function () { renderUsers(); });
+      TrustApp.watchStorage(['trustUsers', 'trustBalances', 'trustVerifications'], function () { renderUsers(); });
+    window.addEventListener('trustver', renderUsers);
     }
     setInterval(renderUsers, 5000);
     var searchBox = document.getElementById('userSearch');

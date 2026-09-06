@@ -289,13 +289,21 @@
     },
 
     notifyChatChanged: function () {
+      this.notifyStore('trustchat');
+    },
+
+    notifyVerChanged: function () {
+      this.notifyStore('trustver');
+    },
+
+    notifyStore: function (name) {
       try {
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
           if (typeof window.CustomEvent === 'function') {
-            window.dispatchEvent(new window.CustomEvent('trustchat', { detail: { source: 'realtime' } }));
+            window.dispatchEvent(new window.CustomEvent(name, { detail: { source: 'realtime' } }));
           } else {
             var ev = document.createEvent('Event');
-            ev.initEvent('trustchat', false, false);
+            ev.initEvent(name, false, false);
             window.dispatchEvent(ev);
           }
         }
@@ -307,7 +315,9 @@
       var m = null;
       try { m = JSON.parse(raw); } catch (e) { return; }
       if (!m || !m.event) return;
-      if (m.event === 'broadcast' && m.payload && m.payload.event === 'msg' && m.payload.payload && m.payload.payload.map) {
+      if (m.event !== 'broadcast' || !m.payload) return;
+      var evName = m.payload.event;
+      if (evName === 'msg' && m.payload.payload && m.payload.payload.map) {
         var incoming = m.payload.payload.map;
         var cur = {};
         try { cur = JSON.parse(localStorage.getItem('trustChat')) || {}; } catch (e) {}
@@ -317,6 +327,10 @@
         // reconcile + persist against the blob shortly after (heals if sender push lost)
         setTimeout(function () { self.pullBlob('chat').catch(function () {}); }, 150);
         this.notifyChatChanged();
+      } else if (evName === 'verifications') {
+        // verifications map is authoritative on the blob; pull + notify right away
+        setTimeout(function () { self.pullBlob('verifications').catch(function () {}); }, 150);
+        this.notifyVerChanged();
       }
     },
 
@@ -338,6 +352,20 @@
       this.trySendRt({
         topic: this.chatTopic, event: 'broadcast', ref: String(++this.rtRef), join_ref: '1',
         payload: { type: 'broadcast', event: 'msg', payload: { from: 'app', map: map } }
+      });
+    },
+
+    // let a verification write reach every open page in real time (same socket
+    // as chat; receivers pull the authoritative blob shortly after)
+    broadcastVerifications: function () {
+      if (!this.ENABLED) return;
+      var raw = null;
+      try { raw = localStorage.getItem('trustVerifications'); } catch (e) {}
+      if (raw == null) return;
+      if (!this.chatLive) return; // 1s pull loops / 5s poll recover if no socket
+      this.trySendRt({
+        topic: this.chatTopic, event: 'broadcast', ref: String(++this.rtRef), join_ref: '1',
+        payload: { type: 'broadcast', event: 'verifications', payload: { from: 'app' } }
       });
     },
 
@@ -396,6 +424,7 @@
           var op = id === 'chat' ? self.upsertChatMerged(raw) : self.upsertBlob(id, raw);
           // deliver instantly over realtime before/while persisting to the blob
           if (id === 'chat') self.broadcastChat();
+          if (id === 'verifications') self.broadcastVerifications();
           op.then(function () {
             delete self.pending[id];
           }, function () { delete self.pending[id]; });
