@@ -1098,10 +1098,21 @@
   var USERS_KEY = 'trustUsers';
 
   function getUsers() {
-    try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) { return []; }
+    var users = [];
+    try { users = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) { users = []; }
+    return users.filter(function (u) { return !u || !u.deleted; });
   }
 
   function saveUsers(users) {
+    // keep any existing deleted-user tombstones across saves so a later write
+    // from this device can never resurrect an account another device removed
+    var existing = [];
+    try { existing = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) {}
+    var have = {};
+    (users || []).forEach(function (u) { if (u) have[u.uid] = true; });
+    (existing || []).forEach(function (u) {
+      if (u && u.deleted && !have[u.uid]) users.push(u);
+    });
     try { localStorage.setItem(USERS_KEY, JSON.stringify(users)); } catch (e) {}
     dbSync(USERS_KEY);
   }
@@ -1698,7 +1709,10 @@
     if (!user) return { ok: false, msg: 'User not found' };
 
     var users = getUsers();
+    var marker = { uid: uid, account: user.account, deleted: true, deletedAt: new Date().toISOString() };
+    for (var mk in user) marker[mk] = user[mk];
     users = users.filter(function (u) { return u.uid !== uid; });
+    users.push(marker);
     users.forEach(function (u) {
       if (u.invited) u.invited = u.invited.filter(function (id) { return id !== uid; });
       if (u.referredBy === uid) delete u.referredBy;

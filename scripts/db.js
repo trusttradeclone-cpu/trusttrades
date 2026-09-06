@@ -59,6 +59,48 @@
     keyForBlob: function (id) { return BLOB_MAP[id]; },
     blobForKey: function (key) { return KEY_TO_BLOB[key]; },
 
+    // primary key used to union record lists when merging; maps (uid -> data)
+    // are already keyed by property name so they need no accessor
+    blobKeyFor: function (id) {
+      if (id === 'users') return 'uid';
+      if (id === 'txns' || id === 'trades' || id === 'loans' || id === 'aiorders' || id === 'orders') return 'id';
+      return null;
+    },
+
+    // union a remote blob with the local copy so a stale device can never
+    // silently delete records it does not know about:
+    //  - arrays are merged keyed by uid/id, the local (writer) copy wins on
+    //    conflict and remote-only entries are always kept
+    //  - maps are merged per-key, local value wins on conflict
+    //  - an empty local blob never wipes a non-empty remote one
+    mergeBlobJson: function (id, remoteRaw, localRaw) {
+      var remote = null;
+      try { remote = JSON.parse(remoteRaw); } catch (e) { remote = null; }
+      var local = null;
+      try { local = JSON.parse(localRaw); } catch (e) { local = null; }
+      var isEmpty = function (v) {
+        return v == null || (Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0);
+      };
+      if (isEmpty(local)) return isEmpty(remote) ? '{}' : JSON.stringify(remote);
+      if (isEmpty(remote)) return JSON.stringify(local);
+      var key = this.blobKeyFor(id);
+      var out;
+      if (key) {
+        var map = {};
+        (remote || []).forEach(function (x) { if (x && x[key]) map[x[key]] = x; });
+        (local || []).forEach(function (x) { if (x && x[key]) map[x[key]] = x; });
+        out = Object.keys(map).map(function (k) { return map[k]; });
+      } else if (Array.isArray(local) && Array.isArray(remote)) {
+        out = local;
+      } else {
+        // shape mismatch or plain maps: per-key union, writer wins
+        out = {};
+        Object.keys(remote).forEach(function (k) { out[k] = remote[k]; });
+        Object.keys(local).forEach(function (k) { out[k] = local[k]; });
+      }
+      return JSON.stringify(out);
+    },
+
     // core REST call
     q: function (path, opts) {
       opts = opts || {};
@@ -93,11 +135,22 @@
       });
     },
 
+    // push that never silently drops records: pull the CURRENT remote blob,
+    // union it with the local copy, write the union back. mirrors the union
+    // locally too so this device converges to what everyone else has.
     upsertBlob: function (id, json) {
       var self = this;
       var row = this.blobRow(id, json);
-      return this.q('app_meta?id=eq.' + encodeURIComponent(id) + '&select=id', {}).then(function (rows) {
+      return this.q('app_meta?id=eq.' + encodeURIComponent(id) + '&select=id,json', {}).then(function (rows) {
         var exists = Array.isArray(rows) && rows.length > 0;
+        var mergedRaw = row.json;
+        if (exists) {
+          var remoteRaw = '';
+          try { remoteRaw = rows[0].json == null ? '' : rows[0].json; } catch (e) {}
+          mergedRaw = self.mergeBlobJson(id, remoteRaw, json);
+          row = self.blobRow(id, mergedRaw);
+          try { localStorage.setItem(self.keyForBlob(id), mergedRaw); } catch (e) {}
+        }
         if (!exists) return self.q('app_meta', { method: 'POST', body: row });
         return self.q('app_meta?id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: { json: row.json, version: row.version } });
       });
