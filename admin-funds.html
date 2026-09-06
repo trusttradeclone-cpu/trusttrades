@@ -271,6 +271,11 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustTxns', 'trustBalances', 'trustUsers'], function () { renderAll(); });
     }
+    ['trustsync:txns', 'trustsync:balances', 'trustsync:users'].forEach(function (ev) {
+      window.addEventListener(ev, function () {
+        if (DB && DB.pullBlob) DB.pullBlob(ev.split(':')[1]).then(function () { renderAll(); });
+      });
+    });
         setInterval(function () { if (!document.hidden) renderAll(); }, 4000);
         applyMarketStatus();
         if (!TrustApp.isMarketLive() && tries > 0) {

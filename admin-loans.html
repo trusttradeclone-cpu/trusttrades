@@ -194,6 +194,12 @@
       TrustApp.watchStorage(['trustLoans'], function () { renderAll(); });
     }
     window.addEventListener('trustsync:loans', renderAll);
+    window.addEventListener('trustsync:users', function () {
+      if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { renderAll(); });
+    });
+    window.addEventListener('trustsync:balances', function () {
+      if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { renderAll(); });
+    });
     // fast loans channel: new requests and status changes show up in ~1s
     var loanSyncBusy = false;
     var loanSyncDone = function () { loanSyncBusy = false; };

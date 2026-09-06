@@ -227,6 +227,13 @@
     }, 5000);
     window.addEventListener('storage', function (e) {
       if (e.key === null || e.key === 'trustUsers' || e.key === 'trustTxns') location.reload();
+      if (e.key === 'trustBalances') { try { refreshBal(); renderHist(); } catch (er) {} }
+    });
+    window.addEventListener('trustsync:balances', function () {
+      if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { try { refreshBal(); renderHist(); } catch (e) {} });
+    });
+    window.addEventListener('trustsync:users', function () {
+      if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { try { refreshBal(); renderHist(); } catch (e) {} });
     });
   </script>
 </body>
