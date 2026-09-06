@@ -40,8 +40,19 @@ var TrustDB = (function () {
       this.service = cfg.service || '';
       this.READONLY = !!cfg.readonly;
       this.ENABLED = true;
-      this._startRealtime();
       this._bootstrap();
+      // wait for supabase client then start realtime
+      if (typeof window !== 'undefined') {
+        var self = this;
+        function tryStart() {
+          if (window.supabase && window.supabase.channel) {
+            self._startRealtime();
+          } else {
+            setTimeout(tryStart, 100);
+          }
+        }
+        tryStart();
+      }
       return true;
     },
 
@@ -76,6 +87,21 @@ var TrustDB = (function () {
         console.warn('TrustDB bootstrap failed:', e);
         self.connected = false;
       });
+    },
+
+    // compat: pullBlob refreshes a table from Supabase
+    pullBlob: function (table) {
+      var self = this;
+      var keyField = table === 'users' ? 'uid' :
+                     table === 'user_balances' ? 'uid' :
+                     table === 'verifications' ? 'uid' :
+                     table === 'loans' ? 'id' :
+                     table === 'transactions' ? 'id' :
+                     table === 'trades' ? 'id' :
+                     table === 'ai_orders' ? 'id' :
+                     table === 'chat_messages' ? 'uid' :
+                     table === 'coin_addresses' ? 'coin' : 'key';
+      return self._loadTable(table, keyField);
     },
 
     // Generic table loader
@@ -244,6 +270,12 @@ var TrustDB = (function () {
       }
       self._notify('change:' + table, { event: eventType, record: newRecord, old: oldRecord });
       self._notify('change', { table: table, event: eventType });
+      // compat: dispatch trustsync events for legacy pages
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        try {
+          window.dispatchEvent(new window.CustomEvent('trustsync:' + table, { detail: { source: 'realtime', event: eventType } }));
+        } catch (e) {}
+      }
     },
 
     // Event system
