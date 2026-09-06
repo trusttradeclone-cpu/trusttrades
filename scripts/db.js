@@ -35,6 +35,14 @@
     connected: false,
     lastSync: 0,
     pending: {},
+    chatTopic: 'realtime:chat',
+    chatLive: false,
+    chatPendingRaw: null,
+    chatSock: null,
+    chatHb: null,
+    rtTimer: null,
+    rtConnecting: false,
+    rtRef: 0,
 
     setConfig: function (c) {
       if (!c) return false;
@@ -184,6 +192,136 @@
       });
     },
 
+    // ---------- Supabase Realtime (instant chat delivery) ----------
+    wsUrl: function () {
+      var base = String(this.url || '').replace(/\/+$/, '');
+      if (base.indexOf('/rest/v1') !== -1) base = base.split('/rest/v1')[0];
+      return base + '/realtime/v1/websocket?apikey=' + encodeURIComponent(this.anon || '') + '&vsn=1.0.0';
+    },
+
+    trySendRt: function (obj) {
+      try {
+        if (this.chatSock && this.chatSock.readyState === 1) {
+          this.chatSock.send(JSON.stringify(obj));
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    },
+
+    connectChat: function () {
+      var self = this;
+      if (!this.ENABLED || this.rtConnecting) return;
+      if (typeof window === 'undefined' || typeof window.WebSocket !== 'function') return;
+      this.rtConnecting = true;
+      var ws = null;
+      try { ws = new window.WebSocket(this.wsUrl()); } catch (e) {}
+      if (!ws) { this.rtConnecting = false; this.scheduleChatReconnect(); return; }
+      this.chatSock = ws;
+      ws.onopen = function () {
+        self.rtConnecting = false;
+        self.chatLive = true;
+        // join the broadcast channel (Supabase realtime Phoenix protocol)
+        self.trySendRt({
+          topic: self.chatTopic, event: 'phx_join', ref: '1', join_ref: '1',
+          payload: { config: { broadcast: { ack: false, self: false }, presence: { key: '', enabled: false }, private: false } }
+        });
+        self.startRtHeartbeat();
+        // flush any message queued while the socket wasn't connected
+        if (self.chatPendingRaw != null) {
+          var pendingMap = self.chatPendingRaw;
+          self.chatPendingRaw = null;
+          self.trySendRt({
+            topic: self.chatTopic, event: 'broadcast', ref: String(++self.rtRef), join_ref: '1',
+            payload: { type: 'broadcast', event: 'msg', payload: { from: 'app', map: pendingMap } }
+          });
+        }
+      };
+      ws.onmessage = function (e) { self.onRtMessage(e.data); };
+      ws.onclose = function () {
+        self.chatLive = false;
+        self.chatSock = null;
+        self.stopRtHeartbeat();
+        self.rtConnecting = false;
+        self.scheduleChatReconnect();
+      };
+      ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    },
+
+    scheduleChatReconnect: function () {
+      var self = this;
+      if (this.rtTimer) return;
+      this.rtTimer = setTimeout(function () {
+        self.rtTimer = null;
+        self.connectChat();
+      }, 3000);
+    },
+
+    startRtHeartbeat: function () {
+      var self = this;
+      this.stopRtHeartbeat();
+      this.chatHb = setInterval(function () {
+        self.trySendRt({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: 'hb-' + (++self.rtRef), join_ref: null });
+      }, 15000);
+    },
+
+    stopRtHeartbeat: function () {
+      if (this.chatHb) { try { clearInterval(this.chatHb); } catch (e) {} this.chatHb = null; }
+    },
+
+    notifyChatChanged: function () {
+      try {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          if (typeof window.CustomEvent === 'function') {
+            window.dispatchEvent(new window.CustomEvent('trustchat', { detail: { source: 'realtime' } }));
+          } else {
+            var ev = document.createEvent('Event');
+            ev.initEvent('trustchat', false, false);
+            window.dispatchEvent(ev);
+          }
+        }
+      } catch (e) {}
+    },
+
+    onRtMessage: function (raw) {
+      var self = this;
+      var m = null;
+      try { m = JSON.parse(raw); } catch (e) { return; }
+      if (!m || !m.event) return;
+      if (m.event === 'broadcast' && m.payload && m.payload.event === 'msg' && m.payload.payload && m.payload.payload.map) {
+        var incoming = m.payload.payload.map;
+        var cur = {};
+        try { cur = JSON.parse(localStorage.getItem('trustChat')) || {}; } catch (e) {}
+        // merge (idempotent by mid) so nothing already local is ever dropped
+        var merged = this.mergeChatMaps(cur, incoming);
+        try { localStorage.setItem('trustChat', JSON.stringify(merged)); } catch (e) {}
+        // reconcile + persist against the blob shortly after (heals if sender push lost)
+        setTimeout(function () { self.pullBlob('chat').catch(function () {}); }, 150);
+        this.notifyChatChanged();
+      }
+    },
+
+    // call a local write across instantly to every connected chat page
+    broadcastChat: function () {
+      var self = this;
+      if (!this.ENABLED) return;
+      var raw = null;
+      try { raw = localStorage.getItem('trustChat'); } catch (e) {}
+      if (raw == null) return;
+      var map = null;
+      try { map = JSON.parse(raw); } catch (e) { return; }
+      if (!this.chatLive) {
+        // socket not ready yet: remember the map, deliver as soon as joined
+        this.chatPendingRaw = map;
+        this.connectChat();
+        return;
+      }
+      this.trySendRt({
+        topic: this.chatTopic, event: 'broadcast', ref: String(++this.rtRef), join_ref: '1',
+        payload: { type: 'broadcast', event: 'msg', payload: { from: 'app', map: map } }
+      });
+    },
+
     putAll: function () {
       // push every existing local key as a blob (seed/backup)
       var self = this;
@@ -237,6 +375,8 @@
           if (raw == null) return;
           self.pending[id] = true;
           var op = id === 'chat' ? self.upsertChatMerged(raw) : self.upsertBlob(id, raw);
+          // deliver instantly over realtime before/while persisting to the blob
+          if (id === 'chat') self.broadcastChat();
           op.then(function () {
             delete self.pending[id];
           }, function () { delete self.pending[id]; });
@@ -270,6 +410,8 @@
           self.pullAll().catch(function () {});
         }, pollMs);
       }
+      // realtime websocket for instant chat delivery (connects in background)
+      setTimeout(function () { self.connectChat(); }, 1200);
     }
   };
 

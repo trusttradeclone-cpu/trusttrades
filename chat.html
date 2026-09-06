@@ -84,6 +84,7 @@
     });
     render();
     setInterval(render, 2000);
+    window.addEventListener('trustchat', render);
     // fast chat channel: pull only the chat blob ~1s so replies appear
     // without waiting for the 5s whole-app poll
     var chatSyncBusy = false;
