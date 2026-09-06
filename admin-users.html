@@ -196,8 +196,19 @@
       document.getElementById('editModalBody').innerHTML =
         row('Account Status', active ? 'This account is currently active' : 'This account has been deactivated', statusBtn)
         + row('Admin Role', admin ? 'Has full admin access' : 'Standard user permissions', roleBtn)
-        + row('USDT Balance', '$' + fmtAmt(b.USDT) + ' USDT', '<a class="action-btn ab-blue" href="admin-adjust.html?u=' + encodeURIComponent(u.uid) + '">Adjust Balance</a>');
+        + row('USDT Balance', '$' + fmtAmt(b.USDT) + ' USDT', '<a class="action-btn ab-blue" href="admin-adjust.html?u=' + encodeURIComponent(u.uid) + '">Adjust Balance</a>')
+        + row('Delete User', 'Permanently remove this user and all their data', '<button class="action-btn ab-red" onclick="deleteUser(\'' + esc(u.uid) + '\')">Delete</button>');
       document.getElementById('editModal').style.display = 'flex';
+    }
+    function deleteUser(uid) {
+      if (uid === TrustApp.getUserId()) { toast('error', 'You cannot delete your own account'); return; }
+      if (!confirm('PERMANENTLY DELETE this user and all their data (balances, history, chat)? This cannot be undone.')) return;
+      var res = TrustApp.removeUser(uid);
+      if (!res.ok) { toast('error', res.msg); return; }
+      toast('success', 'Deleted user ' + (res.account || uid));
+      document.getElementById('editModal').style.display = 'none';
+      editUid = null;
+      renderUsers();
     }
     function closeEditModal(ev) {
       if (ev && ev.target !== document.getElementById('editModal')) return;

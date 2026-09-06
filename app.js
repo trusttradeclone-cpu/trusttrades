@@ -1523,14 +1523,20 @@
     if (!uid) return [];
     var m = getChatMap();
     if (pruneChatMap(m)) saveChatMap(m);
-    return m[uid] || [];
+    return (m[uid] || []).filter(function (msg) { return msg && !msg.deleted; });
   }
 
   function sendChatMsg(uid, from, text, attachments) {
     if (!uid) return null;
     var m = getChatMap();
     if (!m[uid]) m[uid] = [];
-    var msg = { mid: genId('CM'), from: from === 'admin' ? 'admin' : 'user', text: String(text || '').slice(0, 2000), at: new Date().toISOString() };
+    var msg = {
+      mid: genId('CM'),
+      from: from === 'admin' ? 'admin' : 'user',
+      text: String(text || '').slice(0, 2000),
+      at: new Date().toISOString(),
+      seen: from === 'admin'
+    };
     if (attachments && attachments.length) msg.attachments = attachments.slice(0, 6);
     m[uid].push(msg);
     saveChatMap(m);
@@ -1557,10 +1563,47 @@
     return list[idx];
   }
 
+  // soft-delete a message (tombstone survives cross-device merges so it is
+  // never resurrected by a device that has not pulled the delete yet)
+  function deleteChatMsg(uid, key) {
+    if (!uid) return { ok: false, msg: 'No uid' };
+    var m = getChatMap();
+    var list = m[uid] || [];
+    var idx = -1;
+    if (String(key).indexOf('idx:') === 0) {
+      idx = parseInt(String(key).slice(4), 10);
+    } else {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].mid === key) { idx = i; break; }
+      }
+    }
+    if (idx < 0 || idx >= list.length) return { ok: false, msg: 'Message not found' };
+    list[idx].deleted = true;
+    list[idx].deletedAt = new Date().toISOString();
+    saveChatMap(m);
+    return { ok: true };
+  }
+
+  // mark a user's chat as seen by admin (persist + broadcast only when changed)
+  function markChatSeen(uid) {
+    if (!uid) return false;
+    var m = getChatMap();
+    var list = m[uid];
+    if (!Array.isArray(list) || !list.length) return false;
+    var touched = false;
+    list.forEach(function (msg) {
+      if (msg && msg.from !== 'admin' && !msg.seen) { msg.seen = true; touched = true; }
+    });
+    if (touched) saveChatMap(m);
+    return touched;
+  }
+
   function chatUsers() {
     var m = getChatMap();
     if (pruneChatMap(m)) saveChatMap(m);
-    return Object.keys(m).filter(function (u) { return m[u] && m[u].length; });
+    return Object.keys(m).filter(function (u) {
+      return m[u] && m[u].some(function (msg) { return msg && !msg.deleted; });
+    });
   }
 
   function accountByUid(uid) {
@@ -1645,6 +1688,50 @@
       }
     }
     return { ok: false, msg: 'User not found' };
+  }
+
+  // permanently delete a user and every trace of their data
+  function removeUser(uid) {
+    if (!uid) return { ok: false, msg: 'Uid required' };
+    if (isUserAdmin(uid) && uid === getUserId()) return { ok: false, msg: 'You cannot delete your own account' };
+    var user = accountByUid(uid);
+    if (!user) return { ok: false, msg: 'User not found' };
+
+    var users = getUsers();
+    users = users.filter(function (u) { return u.uid !== uid; });
+    users.forEach(function (u) {
+      if (u.invited) u.invited = u.invited.filter(function (id) { return id !== uid; });
+      if (u.referredBy === uid) delete u.referredBy;
+    });
+    saveUsers(users);
+
+    var bm = getBalanceMap();
+    if (bm[uid]) { delete bm[uid]; saveBalanceMap(bm); }
+
+    saveTxns(getTxns().filter(function (t) { return t.uid !== uid; }));
+    saveLoans(getLoans().filter(function (l) { return l.uid !== uid; }));
+    saveTrades(getTrades().filter(function (t) { return t.uid !== uid; }));
+    saveAIOrders(getAIOrders().filter(function (a) { return a.uid !== uid; }));
+
+    var cm = getChatMap();
+    if (cm[uid]) { delete cm[uid]; saveChatMap(cm); }
+    var gm = getGreeted();
+    if (gm[uid]) { delete gm[uid]; saveGreeted(gm); }
+
+    var vm = getVerifications();
+    if (vm[uid]) { delete vm[uid]; saveVerifications(vm); }
+
+    var pm = getProfitMap();
+    if (pm[uid]) {
+      delete pm[uid];
+      try { localStorage.setItem(PROFIT_KEY, JSON.stringify(pm)); } catch (e) {}
+      dbSync(PROFIT_KEY);
+    }
+
+    // do not let a deleted account keep a live session
+    if (getUserId() === uid) logout();
+
+    return { ok: true, account: user.account };
   }
 
   var VER_KEY = 'trustVerifications';
@@ -2203,6 +2290,9 @@
     supportGreeting: SUPPORT_GREETING,
     sendChatMsg: sendChatMsg,
     updateChatMsg: updateChatMsg,
+    deleteChatMsg: deleteChatMsg,
+    markChatSeen: markChatSeen,
+    removeUser: removeUser,
     accountByUid: accountByUid,
     getVerifications: getVerifications,
     getVerification: getVerification,

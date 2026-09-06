@@ -103,7 +103,9 @@
       });
     },
 
-    // merge two {uid: [msgs]} chat maps, messages unique by mid, ordered oldest->newest
+    // merge two {uid: [msgs]} chat maps, messages unique by mid, ordered oldest->newest.
+    // when the same mid exists on both sides keep the copy that has been deleted /
+    // seen, so tombstones and read-state are never lost in a merge.
     mergeChatMaps: function (baseObj, extraObj) {
       var out = {};
       var keys = {};
@@ -112,10 +114,17 @@
       Object.keys(keys).forEach(function (k) {
         var a = baseObj[k] || [];
         var b = (extraObj && extraObj[k]) || [];
-        var seen = {};
+        var idxByMid = {};
         var merged = [];
+        var rank = function (m) { return (m && m.deleted ? 2 : 0) + (m && m.seen ? 1 : 0); };
         a.concat(b).forEach(function (m) {
-          if (m && m.mid && !seen[m.mid]) { seen[m.mid] = 1; merged.push(m); }
+          if (!m || !m.mid) return;
+          if (idxByMid[m.mid] === undefined) {
+            idxByMid[m.mid] = merged.length;
+            merged.push(m);
+          } else if (rank(m) > rank(merged[idxByMid[m.mid]])) {
+            merged[idxByMid[m.mid]] = m;
+          }
         });
         merged.sort(function (x, y) {
           var tx = x.at || ''; var ty = y.at || '';
