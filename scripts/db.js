@@ -139,6 +139,51 @@
       });
     },
 
+    // merge remote chat json into local (never drop locally-known messages);
+    // if either side held messages the other lacks, push the union back so
+    // every device converges next poll (lost-update recovery)
+    applyChat: function (remoteRaw) {
+      var self = this;
+      var cur = {};
+      try { cur = JSON.parse(localStorage.getItem('trustChat')) || {}; } catch (e) {}
+      var rem = {};
+      try { rem = JSON.parse(remoteRaw) || {}; } catch (e) {}
+      var merged = self.mergeChatMaps(cur, rem);
+      var mergedRaw = JSON.stringify(merged);
+      try { localStorage.setItem('trustChat', mergedRaw); } catch (e) {}
+      if (mergedRaw !== JSON.stringify(rem)) {
+        self.pending['chat'] = true;
+        self.upsertChatMerged(mergedRaw).then(function () {
+          delete self.pending['chat'];
+        }, function () { delete self.pending['chat']; });
+      }
+      return rem;
+    },
+
+    // fast single-blob pull (used on chat pages so messages arrive near-instantly
+    // without re-fetching every blob in the app)
+    pullBlob: function (id) {
+      var self = this;
+      if (!this.ENABLED || !this.keyForBlob(id)) return Promise.resolve(0);
+      return this.q('app_meta?id=eq.' + encodeURIComponent(id) + '&select=id,json', {}).then(function (rows) {
+        // skip while this tab is mid-push on that blob
+        if (self.pending[id]) return 0;
+        if (!Array.isArray(rows) || !rows.length) return 0;
+        var r = rows[0];
+        try {
+          if (r.id === 'chat') {
+            self.applyChat(r.json);
+          } else {
+            localStorage.setItem(self.keyForBlob(id), r.json);
+          }
+          self.connected = true;
+          self.lastSync = Date.now();
+          try { localStorage.setItem('trustDbLastSync', String(self.lastSync)); } catch (e) {}
+          return 1;
+        } catch (e) { return 0; }
+      });
+    },
+
     putAll: function () {
       // push every existing local key as a blob (seed/backup)
       var self = this;
@@ -163,24 +208,7 @@
           if (!key) return;
           try {
             if (r.id === 'chat') {
-              // merge remote chat into local (never drop locally-known messages)
-              var cur = {};
-              try { cur = JSON.parse(localStorage.getItem('trustChat')) || {}; } catch (e) {}
-              var rem = {};
-              try { rem = JSON.parse(r.json) || {}; } catch (e) {}
-              var merged = self.mergeChatMaps(cur, rem);
-              var mergedRaw = JSON.stringify(merged);
-              localStorage.setItem('trustChat', mergedRaw);
-              // heal lost-updates: if either side held messages the other lacks,
-              // push the union back up so every device converges next poll
-              try {
-                if (mergedRaw !== JSON.stringify(rem)) {
-                  self.pending['chat'] = true;
-                  self.upsertChatMerged(mergedRaw).then(function () {
-                    delete self.pending['chat'];
-                  }, function () { delete self.pending['chat']; });
-                }
-              } catch (e) {}
+              self.applyChat(r.json);
             } else {
               localStorage.setItem(key, r.json);
             }
@@ -212,7 +240,7 @@
           op.then(function () {
             delete self.pending[id];
           }, function () { delete self.pending[id]; });
-        }, 400);
+        }, id === 'chat' ? 150 : 400);
       };
     })(),
 

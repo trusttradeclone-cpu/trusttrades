@@ -84,6 +84,16 @@
     });
     render();
     setInterval(render, 2000);
+    // fast chat channel: pull only the chat blob ~1s so replies appear
+    // without waiting for the 5s whole-app poll
+    var chatSyncBusy = false;
+    var chatSyncDone = function () { chatSyncBusy = false; };
+    setInterval(function () {
+      if (document.hidden || chatSyncBusy) return;
+      if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
+      chatSyncBusy = true;
+      DB.pullBlob('chat').then(function () { render(); }).then(chatSyncDone, chatSyncDone);
+    }, 1000);
   </script>
 </body>
 </html>
