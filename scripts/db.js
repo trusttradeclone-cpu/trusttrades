@@ -45,9 +45,18 @@ var TrustDB = (function () {
       return true;
     },
 
+    // Clean up old blob localStorage on first load
+    _cleanupOldBlobs: function () {
+      var oldKeys = ['trustUsers', 'trustBalances', 'trustVerifications', 'trustLoans', 'trustTxns', 'trustTrades', 'trustAIOrders', 'trustChat', 'trustChatGreeted', 'trustAddresses', 'trustConfig', 'trustProfitMode', 'trustDbLastSync'];
+      oldKeys.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+      // mark cleaned
+      try { localStorage.setItem('trustBlobsCleaned', '1'); } catch (e) {}
+    },
+
     // Bootstrap: load initial data
     _bootstrap: function () {
       var self = this;
+      if (!localStorage.getItem('trustBlobsCleaned')) self._cleanupOldBlobs();
       Promise.all([
         self._loadTable('users', 'uid'),
         self._loadTable('user_balances', 'uid'),
