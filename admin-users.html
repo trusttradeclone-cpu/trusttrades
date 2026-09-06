@@ -279,6 +279,7 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustUsers', 'trustBalances'], function () { renderUsers(); });
     }
+    setInterval(renderUsers, 5000);
     var searchBox = document.getElementById('userSearch');
     searchBox.addEventListener('input', function () {
       var q = searchBox.value.toLowerCase();

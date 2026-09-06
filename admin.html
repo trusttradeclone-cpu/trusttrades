@@ -214,6 +214,7 @@
   <script>
     TrustApp.initAdminLock();
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
+    function renderDash() {
     var users = TrustApp.getUsers();
     var statEl = document.getElementById('statUsers');
     if (statEl) statEl.textContent = users.length;
@@ -300,6 +301,10 @@
     var totalPending = verPending + pendingDep + pendingWd + pendingLoans + pendingQuants + unread;
     var heroP = document.getElementById('heroPending');
     if (heroP) heroP.textContent = totalPending + ' pending task' + (totalPending === 1 ? '' : 's');
+    }
+
+    renderDash();
+    setInterval(function () { if (!document.hidden) renderDash(); }, 5000);
 
     var RELOAD_KEYS = ['trustUsers', 'trustTxns', 'trustLoans', 'trustAIOrders', 'trustVerifications', 'trustChat', 'trustBalances'];
     window.addEventListener('storage', function (e) {

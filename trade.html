@@ -688,6 +688,8 @@
     var mainTickInterval = setInterval(tick, 2000);
     var cleanupIntervals = [];
     cleanupIntervals.push(mainTickInterval);
+    var recordsInterval = setInterval(function () { records = loadRecords(); renderRecords(); }, 4000);
+    cleanupIntervals.push(recordsInterval);
     window.addEventListener('beforeunload', function () {
       cleanupIntervals.forEach(function (id) { clearInterval(id); });
       if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }

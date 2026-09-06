@@ -510,6 +510,7 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustTxns', 'trustBalances'], function () { renderHist(); updateWdBalance(); });
     }
+    setInterval(function () { renderHist(); updateWdBalance(); }, 3000);
   </script>
 </body>
 </html>

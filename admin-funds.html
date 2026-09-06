@@ -271,6 +271,7 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustTxns', 'trustBalances', 'trustUsers'], function () { renderAll(); });
     }
+        setInterval(function () { if (!document.hidden) renderAll(); }, 4000);
         applyMarketStatus();
         if (!TrustApp.isMarketLive() && tries > 0) {
           setTimeout(function () { loadMarket(tries - 1); }, 4000);

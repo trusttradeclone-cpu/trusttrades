@@ -193,6 +193,7 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustLoans'], function () { renderAll(); });
     }
+    setInterval(function () { if (!document.hidden) renderAll(); }, 4000);
   </script>
 </body>
 </html>

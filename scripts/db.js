@@ -34,6 +34,7 @@
     service: CFG.DB_SERVICE_KEY || '',
     connected: false,
     lastSync: 0,
+    pending: {},
 
     setConfig: function (c) {
       if (!c) return false;
@@ -94,6 +95,50 @@
       });
     },
 
+    // merge two {uid: [msgs]} chat maps, messages unique by mid, ordered oldest->newest
+    mergeChatMaps: function (baseObj, extraObj) {
+      var out = {};
+      var keys = {};
+      Object.keys(baseObj || {}).forEach(function (k) { keys[k] = 1; });
+      Object.keys(extraObj || {}).forEach(function (k) { keys[k] = 1; });
+      Object.keys(keys).forEach(function (k) {
+        var a = baseObj[k] || [];
+        var b = (extraObj && extraObj[k]) || [];
+        var seen = {};
+        var merged = [];
+        a.concat(b).forEach(function (m) {
+          if (m && m.mid && !seen[m.mid]) { seen[m.mid] = 1; merged.push(m); }
+        });
+        merged.sort(function (x, y) {
+          var tx = x.at || ''; var ty = y.at || '';
+          return tx < ty ? -1 : tx > ty ? 1 : 0;
+        });
+        out[k] = merged;
+      });
+      return out;
+    },
+
+    // chat push that never silently drops messages: pulls the CURRENT remote
+    // chat map, merges local+remote (unique by mid), writes the union back.
+    upsertChatMerged: function (localRaw) {
+      var self = this;
+      var local = {};
+      try { local = JSON.parse(localRaw) || {}; } catch (e) {}
+      return this.q('app_meta?id=eq.chat&select=id,json', {}).then(function (rows) {
+        var remote = {};
+        if (Array.isArray(rows) && rows.length && rows[0].json) {
+          try { remote = JSON.parse(rows[0].json) || {}; } catch (e) {}
+        }
+        var mergedRaw = JSON.stringify(self.mergeChatMaps(remote, local));
+        // mirror the merged map locally so pull and render stay consistent
+        try { localStorage.setItem('trustChat', mergedRaw); } catch (e) {}
+        var row = self.blobRow('chat', mergedRaw);
+        var exists = Array.isArray(rows) && rows.length > 0;
+        if (!exists) return self.q('app_meta', { method: 'POST', body: row });
+        return self.q('app_meta?id=eq.chat', { method: 'PATCH', body: { json: row.json, version: row.version } });
+      });
+    },
+
     putAll: function () {
       // push every existing local key as a blob (seed/backup)
       var self = this;
@@ -112,10 +157,33 @@
       var self = this;
       return this.listBlobs().then(function (rows) {
         rows.forEach(function (r) {
+          // skip blobs this tab edited and is about to (or still) pushes
+          if (self.pending[r.id]) return;
           var key = self.keyForBlob(r.id);
           if (!key) return;
           try {
-            localStorage.setItem(key, r.json);
+            if (r.id === 'chat') {
+              // merge remote chat into local (never drop locally-known messages)
+              var cur = {};
+              try { cur = JSON.parse(localStorage.getItem('trustChat')) || {}; } catch (e) {}
+              var rem = {};
+              try { rem = JSON.parse(r.json) || {}; } catch (e) {}
+              var merged = self.mergeChatMaps(cur, rem);
+              var mergedRaw = JSON.stringify(merged);
+              localStorage.setItem('trustChat', mergedRaw);
+              // heal lost-updates: if either side held messages the other lacks,
+              // push the union back up so every device converges next poll
+              try {
+                if (mergedRaw !== JSON.stringify(rem)) {
+                  self.pending['chat'] = true;
+                  self.upsertChatMerged(mergedRaw).then(function () {
+                    delete self.pending['chat'];
+                  }, function () { delete self.pending['chat']; });
+                }
+              } catch (e) {}
+            } else {
+              localStorage.setItem(key, r.json);
+            }
             self.connected = true;
           } catch (e) {}
         });
@@ -139,7 +207,11 @@
           var raw = null;
           try { raw = localStorage.getItem(key); } catch (e) { raw = null; }
           if (raw == null) return;
-          self.upsertBlob(id, raw).catch(function () {});
+          self.pending[id] = true;
+          var op = id === 'chat' ? self.upsertChatMerged(raw) : self.upsertBlob(id, raw);
+          op.then(function () {
+            delete self.pending[id];
+          }, function () { delete self.pending[id]; });
         }, 400);
       };
     })(),
@@ -160,6 +232,15 @@
         document.addEventListener('DOMContentLoaded', boot);
       } else {
         boot();
+      }
+      // keep localStorage fresh from Supabase so every open page sees
+      // changes made on OTHER devices (admin approves deposit -> user sees it)
+      var pollMs = 5000;
+      if (typeof window.setInterval === 'function') {
+        setInterval(function () {
+          if (typeof document !== 'undefined' && document.hidden) return;
+          self.pullAll().catch(function () {});
+        }, pollMs);
       }
     }
   };

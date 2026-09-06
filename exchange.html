@@ -217,6 +217,7 @@
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) updateBals();
     });
+    setInterval(function () { updateBals(); renderHist(); }, 3000);
     updateBals();
     calc();
     renderHist();
