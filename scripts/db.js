@@ -384,6 +384,20 @@
         // verifications map is authoritative on the blob; pull + notify right away
         setTimeout(function () { self.pullBlob('verifications').catch(function () {}); }, 150);
         this.notifyVerChanged();
+      } else if (BLOB_MAP.hasOwnProperty(evName)) {
+        // any other blob changed on another device: fast-pull it and tell this page
+        setTimeout(function () { self.pullBlob(evName).catch(function () {}); }, 150);
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          var nm = 'trustsync:' + evName;
+          try {
+            window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'realtime' } }));
+          } catch (e) {
+            try {
+              var ev = new Event(nm);
+              window.dispatchEvent(ev);
+            } catch (e2) {}
+          }
+        }
       }
     },
 
@@ -411,14 +425,33 @@
     // let a verification write reach every open page in real time (same socket
     // as chat; receivers pull the authoritative blob shortly after)
     broadcastVerifications: function () {
-      if (!this.ENABLED) return;
+      this.broadcastBlob('verifications');
+    },
+
+    // deliver a blob-change notification over the realtime socket; receivers
+    // pull the authoritative blob shortly after and re-render
+    broadcastBlob: function (id) {
+      if (!this.ENABLED || !this.keyForBlob(id)) return;
+      if (id === 'chat') { this.broadcastChat(); return; }
       var raw = null;
-      try { raw = localStorage.getItem('trustVerifications'); } catch (e) {}
+      try { raw = localStorage.getItem(this.keyForBlob(id)); } catch (e) {}
       if (raw == null) return;
       if (!this.chatLive) return; // 1s pull loops / 5s poll recover if no socket
       this.trySendRt({
         topic: this.chatTopic, event: 'broadcast', ref: String(++this.rtRef), join_ref: '1',
-        payload: { type: 'broadcast', event: 'verifications', payload: { from: 'app' } }
+        payload: { type: 'broadcast', event: id, payload: { from: 'app' } }
+      });
+    },
+
+    // read a blob straight from Supabase into memory WITHOUT touching
+    // localStorage (used by admin views that render photo-heavy blobs, so a
+    // device storage quota can never hide records/details from them)
+    fetchBlob: function (id) {
+      var self = this;
+      if (!this.ENABLED || !this.keyForBlob(id)) return Promise.resolve(null);
+      return this.q('app_meta?id=eq.' + encodeURIComponent(id) + '&select=id,json', {}).then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) return null;
+        try { return JSON.parse(rows[0].json); } catch (e) { return null; }
       });
     },
 
@@ -476,8 +509,7 @@
           self.pending[id] = true;
           var op = id === 'chat' ? self.upsertChatMerged(raw) : self.upsertBlob(id, raw);
           // deliver instantly over realtime before/while persisting to the blob
-          if (id === 'chat') self.broadcastChat();
-          if (id === 'verifications') self.broadcastVerifications();
+          self.broadcastBlob(id);
           op.then(function () {
             delete self.pending[id];
           }, function () { delete self.pending[id]; });
