@@ -305,7 +305,9 @@
 
     renderDash();
     setInterval(function () { if (!document.hidden) renderDash(); }, 5000);
-
+    ['trustsync:users', 'trustsync:txns', 'trustsync:loans', 'trustsync:verifications', 'trustsync:balances', 'trustsync:chat', 'trustsync:aiorders', 'trustsync:orders', 'trustsync:trades'].forEach(function (ev) {
+      window.addEventListener(ev, function () { renderDash(); });
+    });
     var RELOAD_KEYS = ['trustUsers', 'trustTxns', 'trustLoans', 'trustAIOrders', 'trustVerifications', 'trustChat', 'trustBalances'];
     window.addEventListener('storage', function (e) {
       if (e.key === null || RELOAD_KEYS.indexOf(e.key) !== -1) location.reload();

@@ -387,14 +387,25 @@
       } else if (BLOB_MAP.hasOwnProperty(evName)) {
         var pay = (m.payload.payload) || {};
         var incomingRaw = pay.raw;
-        if (incomingRaw && incomingRaw !== localStorage.getItem(self.keyForBlob(evName))) {
-          try { localStorage.setItem(self.keyForBlob(evName), String(incomingRaw)); } catch (e) {}
+        var isOptimistic = pay.optimistic === true;
+        var key = self.blobKeyFor(evName);
+        var doMerge = isOptimistic && key && (Array.isArray(JSON.parse(incomingRaw || '[]')));
+        if (incomingRaw) {
+          var curRaw = localStorage.getItem(self.keyForBlob(evName));
+          if (doMerge) {
+            try {
+              var merged = self.mergeBlobJson(evName, curRaw || '[]', incomingRaw);
+              if (merged !== curRaw) localStorage.setItem(self.keyForBlob(evName), merged);
+            } catch (e) {}
+          } else if (incomingRaw !== curRaw) {
+            try { localStorage.setItem(self.keyForBlob(evName), String(incomingRaw)); } catch (e) {}
+          }
         }
         setTimeout(function () { self.pullBlob(evName).catch(function () {}); }, 150);
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
           var nm = 'trustsync:' + evName;
           try {
-            window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'realtime', raw: incomingRaw } }));
+            window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'realtime', raw: incomingRaw, optimistic: isOptimistic } }));
           } catch (e) {
             try {
               var ev = new Event(nm);
@@ -508,7 +519,7 @@ broadcastBlob: function (id) {
         var id = self.blobForKey(key);
         if (!id) return;
         if (timers[id]) clearTimeout(timers[id]);
-        // optimistic broadcast: notify other devices of local change immediately
+        // optimistic broadcast for all blobs; array blobs are merged on receive so stale devices can't overwrite
         var rawNow = null;
         try { rawNow = localStorage.getItem(key); } catch (e) { rawNow = null; }
         if (rawNow && rawNow.length < 100000 && self.chatLive) {
