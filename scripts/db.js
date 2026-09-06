@@ -498,9 +498,19 @@ broadcastBlob: function (id) {
             if (r.id === 'chat') {
               self.applyChat(r.json);
             } else {
-              localStorage.setItem(key, r.json);
+              var curRaw = localStorage.getItem(key);
+              // merge remote with local so optimistic data isn't lost
+              var mergedRaw = self.mergeBlobJson(r.id, r.json, curRaw || '[]');
+              if (mergedRaw !== curRaw) localStorage.setItem(key, mergedRaw);
             }
             self.connected = true;
+            // dispatch trustsync so pages re-render instantly (initial load + 5s polls)
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              try {
+                var nm = 'trustsync:' + r.id;
+                window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'pullAll' } }));
+              } catch (e) {}
+            }
           } catch (e) {}
         });
         self.lastSync = Date.now();
