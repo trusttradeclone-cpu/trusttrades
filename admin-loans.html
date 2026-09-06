@@ -193,6 +193,16 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustLoans'], function () { renderAll(); });
     }
+    window.addEventListener('trustsync:loans', renderAll);
+    // fast loans channel: new requests and status changes show up in ~1s
+    var loanSyncBusy = false;
+    var loanSyncDone = function () { loanSyncBusy = false; };
+    setInterval(function () {
+      if (document.hidden || loanSyncBusy) return;
+      if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
+      loanSyncBusy = true;
+      DB.pullBlob('loans').then(renderAll).then(loanSyncDone, loanSyncDone);
+    }, 1000);
     setInterval(function () { if (!document.hidden) renderAll(); }, 4000);
   </script>
 </body>

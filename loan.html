@@ -157,6 +157,18 @@ var plans = {
 upd();
     renderRecords();
     setInterval(renderRecords, 3000);
+    window.addEventListener('trustsync:loans', renderRecords);
+    window.addEventListener('storage', function (e) {
+      if (e.key === 'trustLoans' || e.key === null) renderRecords();
+    });
+    var loanSyncBusy = false;
+    var loanSyncDone = function () { loanSyncBusy = false; };
+    setInterval(function () {
+      if (document.hidden || loanSyncBusy) return;
+      if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
+      loanSyncBusy = true;
+      DB.pullBlob('loans').then(renderRecords).then(loanSyncDone, loanSyncDone);
+    }, 1000);
   </script>
 </body>
 </html>

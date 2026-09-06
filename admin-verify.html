@@ -185,6 +185,19 @@
   <script>
     var currentFilter = 'pending';
     var currentUid = null;
+    // authoritative verification map held in memory (photo-heavy blobs can
+    // overflow localStorage on the admin device; RAM has no such cap), so the
+    // list AND the document photos always render. Falls back to localStorage.
+    var liveVer = null;
+    function verMap() {
+      return liveVer || TrustApp.getVerifications() || {};
+    }
+    function refreshFromBlob() {
+      if (typeof DB === 'undefined' || !DB.fetchBlob || !DB.ENABLED) return;
+      DB.fetchBlob('verifications').then(function (m) {
+        if (m) { liveVer = m; refreshAll(); }
+      }).catch(function () {});
+    }
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -210,7 +223,7 @@
     }
 
     function counts() {
-      var all = TrustApp.getVerifications();
+      var all = verMap();
       var c = { all: 0, pending: 0, approved: 0, rejected: 0 };
       Object.keys(all).forEach(function (u) { c.all++; c[all[u].status]++; });
       return c;
@@ -239,7 +252,7 @@
     function setFilter(f) { currentFilter = f; renderFilters(); renderList(); }
 
     function renderList() {
-      var all = TrustApp.getVerifications();
+      var all = verMap();
       var uids = Object.keys(all).filter(function (u) { return currentFilter === 'all' || all[u].status === currentFilter; });
       uids.sort(function (a, b) { return (all[b].submittedAt || '').localeCompare(all[a].submittedAt || ''); });
       var box = document.getElementById('verRows');
@@ -258,7 +271,7 @@
 
     function openVerModal(uid) {
       currentUid = uid;
-      var v = TrustApp.getVerification(uid);
+      var v = verMap()[uid] || TrustApp.getVerification(uid);
       if (!v) { toast('error', 'Submission not found'); return; }
       document.getElementById('vmAccount').textContent = acctFor(uid);
       document.getElementById('vmSub').textContent = badgeOf(v.status) + ' submitted ' + (v.submittedAt || '').replace('T', ' ').slice(0, 16);
@@ -296,6 +309,7 @@
       closeVerModal();
       renderFilters();
       renderList();
+      refreshFromBlob();
     }
     function vmReject() {
       if (!currentUid) return;
@@ -306,6 +320,7 @@
       closeVerModal();
       renderFilters();
       renderList();
+      refreshFromBlob();
     }
 
     /* ===== Advanced verification ===== */
@@ -319,7 +334,7 @@
     }
 
     function renderAdvList() {
-      var ver = TrustApp.getVerifications();
+      var ver = verMap();
       var box = document.getElementById('advRows');
       var rows = Object.keys(ver).filter(function (u) { return ver[u] && ver[u].advanced; });
       rows.sort(function (a, b) { return (ver[b].advancedSubmittedAt || '').localeCompare(ver[a].advancedSubmittedAt || ''); });
@@ -340,7 +355,7 @@
 
     function openAdvModal(uid) {
       currentAdvUid = uid;
-      var v = TrustApp.getVerification(uid);
+      var v = verMap()[uid] || TrustApp.getVerification(uid);
       var a = v.advancedStatus || 'pending';
       document.getElementById('avmAccount').textContent = acctFor(uid);
       document.getElementById('avmUid').textContent = uid;
@@ -372,6 +387,7 @@
       toast('success', 'Advanced verification approved');
       closeAdvModal();
       renderAdvList();
+      refreshFromBlob();
     }
     function avmReject() {
       if (!currentAdvUid) return;
@@ -381,6 +397,7 @@
       toast('success', 'Advanced verification rejected');
       closeAdvModal();
       renderAdvList();
+      refreshFromBlob();
     }
 
     function refreshAll() {
@@ -393,20 +410,23 @@
     TrustApp.initAdminLock();
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     refreshAll();
+    refreshFromBlob();
     setInterval(refreshAll, 3000);
     window.addEventListener('storage', function (e) {
       if (e.key === 'trustVerifications' || e.key === null) refreshAll();
     });
-    window.addEventListener('trustver', refreshAll);
-    // fast verifications channel: pull only this blob ~1s so new requests and
-    // status changes appear without waiting for the 5s whole-app poll
+    window.addEventListener('trustver', refreshFromBlob);
+    // fast verifications channel: re-fetch the blob in memory ~1s so new
+    // requests (and their documents) appear instantly, without the 5s poll or
+    // any localStorage quota above
     var verSyncBusy = false;
     var verSyncDone = function () { verSyncBusy = false; };
     setInterval(function () {
       if (document.hidden || verSyncBusy) return;
-      if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
+      if (typeof DB === 'undefined' || !DB.fetchBlob || !DB.ENABLED) return;
       verSyncBusy = true;
-      DB.pullBlob('verifications').then(refreshAll).then(verSyncDone, verSyncDone);
+      refreshFromBlob();
+      verSyncDone();
     }, 1000);
   </script>
 </body>
