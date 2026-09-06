@@ -292,10 +292,12 @@
     window.addEventListener('trustver', renderUsers);
     }
     window.addEventListener('trustsync:users', function () {
-      if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { renderUsers(); });
+      try { renderUsers(); } catch (e) {}
+      if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { try { renderUsers(); } catch (e) {} });
     });
     window.addEventListener('trustsync:balances', function () {
-      if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { renderUsers(); });
+      try { renderUsers(); } catch (e) {}
+      if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { try { renderUsers(); } catch (e) {} });
     });
     setInterval(renderUsers, 5000);
     var searchBox = document.getElementById('userSearch');

@@ -385,12 +385,16 @@
         setTimeout(function () { self.pullBlob('verifications').catch(function () {}); }, 150);
         this.notifyVerChanged();
       } else if (BLOB_MAP.hasOwnProperty(evName)) {
-        // any other blob changed on another device: fast-pull it and tell this page
+        var pay = (m.payload.payload) || {};
+        var incomingRaw = pay.raw;
+        if (incomingRaw && incomingRaw !== localStorage.getItem(self.keyForBlob(evName))) {
+          try { localStorage.setItem(self.keyForBlob(evName), String(incomingRaw)); } catch (e) {}
+        }
         setTimeout(function () { self.pullBlob(evName).catch(function () {}); }, 150);
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
           var nm = 'trustsync:' + evName;
           try {
-            window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'realtime' } }));
+            window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'realtime', raw: incomingRaw } }));
           } catch (e) {
             try {
               var ev = new Event(nm);
@@ -430,16 +434,18 @@
 
     // deliver a blob-change notification over the realtime socket; receivers
     // pull the authoritative blob shortly after and re-render
-    broadcastBlob: function (id) {
+broadcastBlob: function (id) {
       if (!this.ENABLED || !this.keyForBlob(id)) return;
       if (id === 'chat') { this.broadcastChat(); return; }
       var raw = null;
       try { raw = localStorage.getItem(this.keyForBlob(id)); } catch (e) {}
       if (raw == null) return;
-      if (!this.chatLive) return; // 1s pull loops / 5s poll recover if no socket
+      if (!this.chatLive) return;
+      var body = { from: 'app' };
+      if (raw.length < 100000) body.raw = raw;
       this.trySendRt({
         topic: this.chatTopic, event: 'broadcast', ref: String(++this.rtRef), join_ref: '1',
-        payload: { type: 'broadcast', event: id, payload: { from: 'app' } }
+        payload: { type: 'broadcast', event: id, payload: body }
       });
     },
 
@@ -502,6 +508,16 @@
         var id = self.blobForKey(key);
         if (!id) return;
         if (timers[id]) clearTimeout(timers[id]);
+        // optimistic broadcast: notify other devices of local change immediately
+        var rawNow = null;
+        try { rawNow = localStorage.getItem(key); } catch (e) { rawNow = null; }
+        if (rawNow && rawNow.length < 100000 && self.chatLive) {
+          var body = { from: 'app', raw: rawNow, optimistic: true };
+          self.trySendRt({
+            topic: self.chatTopic, event: 'broadcast', ref: String(++self.rtRef), join_ref: '1',
+            payload: { type: 'broadcast', event: id, payload: body }
+          });
+        }
         timers[id] = setTimeout(function () {
           var raw = null;
           try { raw = localStorage.getItem(key); } catch (e) { raw = null; }
