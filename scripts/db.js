@@ -1,590 +1,398 @@
-/* TrustCom static clone — light Supabase DB client + sync layer.
-   Loaded BEFORE app.js. Uses the Supabase PostgREST API directly
-   (no external SDK). Falls back silently to localStorage-only if
-   SITE_CONFIG.ENABLED is false. */
-(function (global) {
+/*
+ * TrustDB — Traditional Tables + Realtime
+ * Replaces blob storage with proper Supabase tables.
+ * All data persists in DB, realtime pushes to all open pages instantly.
+ */
+var TrustDB = (function () {
   'use strict';
 
-  var CFG = global.SITE_CONFIG || { ENABLED: false };
-
-  // blob id -> localStorage key the app reads/writes
-  var BLOB_MAP = {
-    users: 'trustUsers',
-    balances: 'trustBalances',
-    txns: 'trustTxns',
-    loans: 'trustLoans',
-    trades: 'trustTrades',
-    orders: 'trustOrders',
-    aiorders: 'trustAIOrders',
-    chat: 'trustChat',
-    greeted: 'trustChatGreeted',
-    verifications: 'trustVerifications',
-    addresses: 'trustCoinAddresses',
-    profitMode: 'trustProfitMode',
-    config: 'trustAppConfig'
-  };
-  var KEY_TO_BLOB = {};
-  for (var b in BLOB_MAP) if (Object.prototype.hasOwnProperty.call(BLOB_MAP, b)) KEY_TO_BLOB[BLOB_MAP[b]] = b;
-
-  var DB = {
-    ENABLED: CFG.ENABLED,
-    READONLY: !!CFG.READONLY,
-    url: CFG.DB_URL || '',
-    anon: CFG.DB_ANON_KEY || '',
-    service: CFG.DB_SERVICE_KEY || '',
+  var self = {
+    url: null,
+    anon: null,
+    service: null,
+    ENABLED: false,
+    READONLY: true,
     connected: false,
     lastSync: 0,
-    pending: {},
-    chatTopic: 'realtime:chat',
-    chatLive: false,
-    chatPendingRaw: null,
-    chatSock: null,
-    chatHb: null,
-    rtTimer: null,
-    rtConnecting: false,
-    rtRef: 0,
 
-    setConfig: function (c) {
-      if (!c) return false;
-      if (c.url) this.url = c.url;
-      if (c.anon) this.anon = c.anon;
-      if (c.service) this.service = c.service;
-      if (c.readonly !== undefined) this.READONLY = !!c.readonly;
-      if (!this.url || this.url.indexOf('YOUR-PROJECT') !== -1 || !this.anon || this.anon.indexOf('YOUR-PROJECT') !== -1) return false;
+    // Local caches (in-memory, refreshed from DB)
+    _cache: {
+      users: [],
+      userBalances: {},
+      verifications: {},
+      loans: [],
+      transactions: [],
+      trades: [],
+      aiOrders: [],
+      chatMessages: {},
+      coinAddresses: {},
+      adminSettings: {}
+    },
+
+    // Realtime channels
+    _channels: {},
+
+    // Init from config
+    init: function (cfg) {
+      if (!cfg) return false;
+      this.url = cfg.url;
+      this.anon = cfg.anon;
+      this.service = cfg.service || '';
+      this.READONLY = !!cfg.readonly;
       this.ENABLED = true;
+      this._startRealtime();
+      this._bootstrap();
       return true;
     },
 
-    keys: function () { return Object.keys(BLOB_MAP); },
-    keyForBlob: function (id) { return BLOB_MAP[id]; },
-    blobForKey: function (key) { return KEY_TO_BLOB[key]; },
-
-    // primary key used to union record lists when merging; maps (uid -> data)
-    // are already keyed by property name so they need no accessor
-    blobKeyFor: function (id) {
-      if (id === 'users') return 'uid';
-      if (id === 'txns' || id === 'trades' || id === 'loans' || id === 'aiorders' || id === 'orders') return 'id';
-      return null;
+    // Bootstrap: load initial data
+    _bootstrap: function () {
+      var self = this;
+      Promise.all([
+        self._loadTable('users', 'uid'),
+        self._loadTable('user_balances', 'uid'),
+        self._loadTable('verifications', 'uid'),
+        self._loadTable('loans', 'id'),
+        self._loadTable('transactions', 'id'),
+        self._loadTable('trades', 'id'),
+        self._loadTable('ai_orders', 'id'),
+        self._loadTable('chat_messages', 'uid'),
+        self._loadTable('coin_addresses', 'coin'),
+        self._loadTable('admin_settings', 'key')
+      ]).then(function () {
+        self.connected = true;
+        self.lastSync = Date.now();
+        self._notify('ready');
+      }).catch(function (e) {
+        console.warn('TrustDB bootstrap failed:', e);
+        self.connected = false;
+      });
     },
 
-    // union a remote blob with the local copy so a stale device can never
-    // silently delete records it does not know about:
-    //  - arrays are merged keyed by uid/id, the local (writer) copy wins on
-    //    conflict and remote-only entries are always kept
-    //  - maps are merged per-key, local value wins on conflict
-    //  - an empty local blob never wipes a non-empty remote one
-    mergeBlobJson: function (id, remoteRaw, localRaw) {
-      var remote = null;
-      try { remote = JSON.parse(remoteRaw); } catch (e) { remote = null; }
-      var local = null;
-      try { local = JSON.parse(localRaw); } catch (e) { local = null; }
-      var isEmpty = function (v) {
-        return v == null || (Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0);
-      };
-      if (isEmpty(local)) return isEmpty(remote) ? '{}' : JSON.stringify(remote);
-      if (isEmpty(remote)) return JSON.stringify(local);
-      var key = this.blobKeyFor(id);
-      var out;
-      if (key) {
-        var map = {};
-        (remote || []).forEach(function (x) { if (x && x[key]) map[x[key]] = x; });
-        (local || []).forEach(function (x) { if (x && x[key]) map[x[key]] = x; });
-        out = Object.keys(map).map(function (k) { return map[k]; });
-      } else if (Array.isArray(local) && Array.isArray(remote)) {
-        out = local;
-      } else {
-        // shape mismatch or plain maps: per-key union, writer wins
-        out = {};
-        Object.keys(remote).forEach(function (k) { out[k] = remote[k]; });
-        Object.keys(local).forEach(function (k) { out[k] = local[k]; });
-      }
-      return JSON.stringify(out);
+    // Generic table loader
+    _loadTable: function (table, keyField) {
+      var self = this;
+      return this.q(table + '?select=*&order=' + keyField + '.asc', {}).then(function (rows) {
+        var cache = self._cache[table === 'user_balances' ? 'userBalances' :
+                      table === 'coin_addresses' ? 'coinAddresses' :
+                      table === 'admin_settings' ? 'adminSettings' :
+                      table === 'chat_messages' ? 'chatMessages' :
+                      table === 'ai_orders' ? 'aiOrders' : table];
+        if (table === 'user_balances') {
+          var map = {};
+          rows.forEach(function (r) { map[r.uid] = map[r.uid] || {}; map[r.uid][r.coin] = r.amount; });
+          self._cache.userBalances = map;
+        } else if (table === 'chat_messages') {
+          var cmap = {};
+          rows.forEach(function (r) { cmap[r.uid] = cmap[r.uid] || []; cmap[r.uid].push(r); });
+          self._cache.chatMessages = cmap;
+        } else if (table === 'admin_settings') {
+          var smap = {};
+          rows.forEach(function (r) { smap[r.key] = r.value; });
+          self._cache.adminSettings = smap;
+        } else if (Array.isArray(rows)) {
+          if (keyField === 'id' && table !== 'loans') {
+            cache.length = 0;
+            rows.forEach(function (r) { cache.push(r); });
+          } else if (keyField === 'uid' || keyField === 'coin') {
+            var kmap = {};
+            rows.forEach(function (r) { kmap[r[keyField]] = r; });
+            Object.assign(cache, kmap);
+          } else {
+            cache.length = 0;
+            rows.forEach(function (r) { cache.push(r); });
+          }
+        }
+        return rows.length;
+      });
     },
 
-    // core REST call
+    // Core REST call
     q: function (path, opts) {
       opts = opts || {};
       if (!this.ENABLED) return Promise.resolve(null);
       var headers = {
         'apikey': this.anon,
         'Authorization': 'Bearer ' + this.anon,
-        'Accept-Profile': 'public',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
       };
       if (opts.headers) for (var h in opts.headers) headers[h] = opts.headers[h];
       var init = { method: opts.method || 'GET', headers: headers };
       if (opts.body !== undefined) init.body = JSON.stringify(opts.body);
       return fetch(this.url + '/rest/v1/' + path, init).then(function (res) {
-        if (!res.ok) return Promise.reject(new Error('HTTP ' + res.status + ' ' + path));
+        if (!res.ok) return res.text().then(function (t) { throw new Error('HTTP ' + res.status + ' ' + path + ': ' + t); });
         if (opts.text) return res.text();
         if (opts.noContent) return null;
         return res.json();
       });
     },
 
-    blobRow: function (id, json) {
-      return { id: id, json: typeof json === 'string' ? json : JSON.stringify(json || ''), version: 1 };
-    },
-
-    listBlobs: function () {
+    // Realtime subscriptions
+    _startRealtime: function () {
       var self = this;
-      return this.q('app_meta?select=id,json,updated_at&order=updated_at.desc', {}).then(function (rows) {
-        if (!Array.isArray(rows)) return [];
-        self.connected = true;
-        return rows;
+      var tables = ['users', 'user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages', 'coin_addresses', 'admin_settings'];
+      tables.forEach(function (table) {
+        self._subscribeTable(table);
       });
     },
 
-    // push that never silently drops records: pull the CURRENT remote blob,
-    // union it with the local copy, write the union back. mirrors the union
-    // locally too so this device converges to what everyone else has.
-    upsertBlob: function (id, json) {
+    _subscribeTable: function (table) {
       var self = this;
-      var row = this.blobRow(id, json);
-      return this.q('app_meta?id=eq.' + encodeURIComponent(id) + '&select=id,json', {}).then(function (rows) {
-        var exists = Array.isArray(rows) && rows.length > 0;
-        var mergedRaw = row.json;
-        if (exists) {
-          var remoteRaw = '';
-          try { remoteRaw = rows[0].json == null ? '' : rows[0].json; } catch (e) {}
-          mergedRaw = self.mergeBlobJson(id, remoteRaw, json);
-          row = self.blobRow(id, mergedRaw);
-          try { localStorage.setItem(self.keyForBlob(id), mergedRaw); } catch (e) {}
-        }
-        if (!exists) return self.q('app_meta', { method: 'POST', body: row });
-        return self.q('app_meta?id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: { json: row.json, version: row.version } });
-      });
-    },
-
-    // merge two {uid: [msgs]} chat maps, messages unique by mid, ordered oldest->newest.
-    // when the same mid exists on both sides keep the copy that has been deleted /
-    // seen, so tombstones and read-state are never lost in a merge; if both copies
-    // are equally healthy, the newest edit (editedAt) wins so edits propagate to
-    // every device instead of silently losing to a device's stale local copy.
-    mergeChatMaps: function (baseObj, extraObj) {
-      var out = {};
-      var keys = {};
-      Object.keys(baseObj || {}).forEach(function (k) { keys[k] = 1; });
-      Object.keys(extraObj || {}).forEach(function (k) { keys[k] = 1; });
-      var better = function (cur, m) {
-        var rc = (cur && cur.deleted ? 2 : 0) + (cur && cur.seen ? 1 : 0);
-        var rm = (m && m.deleted ? 2 : 0) + (m && m.seen ? 1 : 0);
-        if (rm !== rc) return rm > rc ? m : cur;
-        var ea = (cur && cur.editedAt) || '';
-        var eb = (m && m.editedAt) || '';
-        if (ea !== eb) return eb > ea ? m : cur;
-        return cur;
-      };
-      Object.keys(keys).forEach(function (k) {
-        var a = baseObj[k] || [];
-        var b = (extraObj && extraObj[k]) || [];
-        var idxByMid = {};
-        var merged = [];
-        a.concat(b).forEach(function (m) {
-          if (!m || !m.mid) return;
-          if (idxByMid[m.mid] === undefined) {
-            idxByMid[m.mid] = merged.length;
-            merged.push(m);
-          } else {
-            merged[idxByMid[m.mid]] = better(merged[idxByMid[m.mid]], m);
-          }
-        });
-        merged.sort(function (x, y) {
-          var tx = x.at || ''; var ty = y.at || '';
-          return tx < ty ? -1 : tx > ty ? 1 : 0;
-        });
-        out[k] = merged;
-      });
-      return out;
-    },
-
-    // chat push that never silently drops messages: pulls the CURRENT remote
-    // chat map, merges local+remote (unique by mid), writes the union back.
-    upsertChatMerged: function (localRaw) {
-      var self = this;
-      var local = {};
-      try { local = JSON.parse(localRaw) || {}; } catch (e) {}
-      return this.q('app_meta?id=eq.chat&select=id,json', {}).then(function (rows) {
-        var remote = {};
-        if (Array.isArray(rows) && rows.length && rows[0].json) {
-          try { remote = JSON.parse(rows[0].json) || {}; } catch (e) {}
-        }
-        var mergedRaw = JSON.stringify(self.mergeChatMaps(remote, local));
-        // mirror the merged map locally so pull and render stay consistent
-        try { localStorage.setItem('trustChat', mergedRaw); } catch (e) {}
-        var row = self.blobRow('chat', mergedRaw);
-        var exists = Array.isArray(rows) && rows.length > 0;
-        if (!exists) return self.q('app_meta', { method: 'POST', body: row });
-        return self.q('app_meta?id=eq.chat', { method: 'PATCH', body: { json: row.json, version: row.version } });
-      });
-    },
-
-    // merge remote chat json into local (never drop locally-known messages);
-    // if either side held messages the other lacks, push the union back so
-    // every device converges next poll (lost-update recovery)
-    applyChat: function (remoteRaw) {
-      var self = this;
-      var cur = {};
-      try { cur = JSON.parse(localStorage.getItem('trustChat')) || {}; } catch (e) {}
-      var rem = {};
-      try { rem = JSON.parse(remoteRaw) || {}; } catch (e) {}
-      var merged = self.mergeChatMaps(cur, rem);
-      var mergedRaw = JSON.stringify(merged);
-      try { localStorage.setItem('trustChat', mergedRaw); } catch (e) {}
-      if (mergedRaw !== JSON.stringify(rem)) {
-        self.pending['chat'] = true;
-        self.upsertChatMerged(mergedRaw).then(function () {
-          delete self.pending['chat'];
-        }, function () { delete self.pending['chat']; });
-      }
-      return rem;
-    },
-
-    // fast single-blob pull (used on chat pages so messages arrive near-instantly
-    // without re-fetching every blob in the app)
-    pullBlob: function (id) {
-      var self = this;
-      if (!this.ENABLED || !this.keyForBlob(id)) return Promise.resolve(0);
-      return this.q('app_meta?id=eq.' + encodeURIComponent(id) + '&select=id,json', {}).then(function (rows) {
-        // skip while this tab is mid-push on that blob
-        if (self.pending[id]) return 0;
-        if (!Array.isArray(rows) || !rows.length) return 0;
-        var r = rows[0];
-        try {
-          if (r.id === 'chat') {
-            self.applyChat(r.json);
-          } else {
-            localStorage.setItem(self.keyForBlob(id), r.json);
-          }
-          self.connected = true;
-          self.lastSync = Date.now();
-          try { localStorage.setItem('trustDbLastSync', String(self.lastSync)); } catch (e) {}
-          return 1;
-        } catch (e) { return 0; }
-      });
-    },
-
-    // ---------- Supabase Realtime (instant chat delivery) ----------
-    wsUrl: function () {
-      var base = String(this.url || '').replace(/\/+$/, '');
-      if (base.indexOf('/rest/v1') !== -1) base = base.split('/rest/v1')[0];
-      return base + '/realtime/v1/websocket?apikey=' + encodeURIComponent(this.anon || '') + '&vsn=1.0.0';
-    },
-
-    trySendRt: function (obj) {
+      if (typeof window === 'undefined' || !window.supabase) return;
       try {
-        if (this.chatSock && this.chatSock.readyState === 1) {
-          this.chatSock.send(JSON.stringify(obj));
-          return true;
-        }
-      } catch (e) {}
-      return false;
-    },
-
-    connectChat: function () {
-      var self = this;
-      if (!this.ENABLED || this.rtConnecting) return;
-      if (typeof window === 'undefined' || typeof window.WebSocket !== 'function') return;
-      this.rtConnecting = true;
-      var ws = null;
-      try { ws = new window.WebSocket(this.wsUrl()); } catch (e) {}
-      if (!ws) { this.rtConnecting = false; this.scheduleChatReconnect(); return; }
-      this.chatSock = ws;
-      ws.onopen = function () {
-        self.rtConnecting = false;
-        self.chatLive = true;
-        // join the broadcast channel (Supabase realtime Phoenix protocol)
-        self.trySendRt({
-          topic: self.chatTopic, event: 'phx_join', ref: '1', join_ref: '1',
-          payload: { config: { broadcast: { ack: false, self: false }, presence: { key: '', enabled: false }, private: false } }
-        });
-        self.startRtHeartbeat();
-        // flush any message queued while the socket wasn't connected
-        if (self.chatPendingRaw != null) {
-          var pendingMap = self.chatPendingRaw;
-          self.chatPendingRaw = null;
-          self.trySendRt({
-            topic: self.chatTopic, event: 'broadcast', ref: String(++self.rtRef), join_ref: '1',
-            payload: { type: 'broadcast', event: 'msg', payload: { from: 'app', map: pendingMap } }
-          });
-        }
-      };
-      ws.onmessage = function (e) { self.onRtMessage(e.data); };
-      ws.onclose = function () {
-        self.chatLive = false;
-        self.chatSock = null;
-        self.stopRtHeartbeat();
-        self.rtConnecting = false;
-        self.scheduleChatReconnect();
-      };
-      ws.onerror = function () { try { ws.close(); } catch (e) {} };
-    },
-
-    scheduleChatReconnect: function () {
-      var self = this;
-      if (this.rtTimer) return;
-      this.rtTimer = setTimeout(function () {
-        self.rtTimer = null;
-        self.connectChat();
-      }, 3000);
-    },
-
-    startRtHeartbeat: function () {
-      var self = this;
-      this.stopRtHeartbeat();
-      this.chatHb = setInterval(function () {
-        self.trySendRt({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: 'hb-' + (++self.rtRef), join_ref: null });
-      }, 15000);
-    },
-
-    stopRtHeartbeat: function () {
-      if (this.chatHb) { try { clearInterval(this.chatHb); } catch (e) {} this.chatHb = null; }
-    },
-
-    notifyChatChanged: function () {
-      this.notifyStore('trustchat');
-    },
-
-    notifyVerChanged: function () {
-      this.notifyStore('trustver');
-    },
-
-    notifyStore: function (name) {
-      try {
-        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-          if (typeof window.CustomEvent === 'function') {
-            window.dispatchEvent(new window.CustomEvent(name, { detail: { source: 'realtime' } }));
-          } else {
-            var ev = document.createEvent('Event');
-            ev.initEvent(name, false, false);
-            window.dispatchEvent(ev);
-          }
-        }
-      } catch (e) {}
-    },
-
-    onRtMessage: function (raw) {
-      var self = this;
-      var m = null;
-      try { m = JSON.parse(raw); } catch (e) { return; }
-      if (!m || !m.event) return;
-      if (m.event !== 'broadcast' || !m.payload) return;
-      var evName = m.payload.event;
-      if (evName === 'msg' && m.payload.payload && m.payload.payload.map) {
-        var incoming = m.payload.payload.map;
-        var cur = {};
-        try { cur = JSON.parse(localStorage.getItem('trustChat')) || {}; } catch (e) {}
-        // merge (idempotent by mid) so nothing already local is ever dropped
-        var merged = this.mergeChatMaps(cur, incoming);
-        try { localStorage.setItem('trustChat', JSON.stringify(merged)); } catch (e) {}
-        // reconcile + persist against the blob shortly after (heals if sender push lost)
-        setTimeout(function () { self.pullBlob('chat').catch(function () {}); }, 150);
-        this.notifyChatChanged();
-      } else if (evName === 'verifications') {
-        // verifications map is authoritative on the blob; pull + notify right away
-        setTimeout(function () { self.pullBlob('verifications').catch(function () {}); }, 150);
-        this.notifyVerChanged();
-      } else if (BLOB_MAP.hasOwnProperty(evName)) {
-        var pay = (m.payload.payload) || {};
-        var incomingRaw = pay.raw;
-        var isOptimistic = pay.optimistic === true;
-        var key = self.blobKeyFor(evName);
-        var doMerge = isOptimistic && key && (Array.isArray(JSON.parse(incomingRaw || '[]')));
-        if (incomingRaw) {
-          var curRaw = localStorage.getItem(self.keyForBlob(evName));
-          if (doMerge) {
-            try {
-              var merged = self.mergeBlobJson(evName, curRaw || '[]', incomingRaw);
-              if (merged !== curRaw) localStorage.setItem(self.keyForBlob(evName), merged);
-            } catch (e) {}
-          } else if (incomingRaw !== curRaw) {
-            try { localStorage.setItem(self.keyForBlob(evName), String(incomingRaw)); } catch (e) {}
-          }
-        }
-        setTimeout(function () { self.pullBlob(evName).catch(function () {}); }, 150);
-        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-          var nm = 'trustsync:' + evName;
-          try {
-            window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'realtime', raw: incomingRaw, optimistic: isOptimistic } }));
-          } catch (e) {
-            try {
-              var ev = new Event(nm);
-              window.dispatchEvent(ev);
-            } catch (e2) {}
-          }
-        }
-      }
-    },
-
-    // call a local write across instantly to every connected chat page
-    broadcastChat: function () {
-      var self = this;
-      if (!this.ENABLED) return;
-      var raw = null;
-      try { raw = localStorage.getItem('trustChat'); } catch (e) {}
-      if (raw == null) return;
-      var map = null;
-      try { map = JSON.parse(raw); } catch (e) { return; }
-      if (!this.chatLive) {
-        // socket not ready yet: remember the map, deliver as soon as joined
-        this.chatPendingRaw = map;
-        this.connectChat();
-        return;
-      }
-      this.trySendRt({
-        topic: this.chatTopic, event: 'broadcast', ref: String(++this.rtRef), join_ref: '1',
-        payload: { type: 'broadcast', event: 'msg', payload: { from: 'app', map: map } }
-      });
-    },
-
-    // let a verification write reach every open page in real time (same socket
-    // as chat; receivers pull the authoritative blob shortly after)
-    broadcastVerifications: function () {
-      this.broadcastBlob('verifications');
-    },
-
-    // deliver a blob-change notification over the realtime socket; receivers
-    // pull the authoritative blob shortly after and re-render
-broadcastBlob: function (id) {
-      if (!this.ENABLED || !this.keyForBlob(id)) return;
-      if (id === 'chat') { this.broadcastChat(); return; }
-      var raw = null;
-      try { raw = localStorage.getItem(this.keyForBlob(id)); } catch (e) {}
-      if (raw == null) return;
-      if (!this.chatLive) return;
-      var body = { from: 'app' };
-      if (raw.length < 100000) body.raw = raw;
-      this.trySendRt({
-        topic: this.chatTopic, event: 'broadcast', ref: String(++this.rtRef), join_ref: '1',
-        payload: { type: 'broadcast', event: id, payload: body }
-      });
-    },
-
-    // read a blob straight from Supabase into memory WITHOUT touching
-    // localStorage (used by admin views that render photo-heavy blobs, so a
-    // device storage quota can never hide records/details from them)
-    fetchBlob: function (id) {
-      var self = this;
-      if (!this.ENABLED || !this.keyForBlob(id)) return Promise.resolve(null);
-      return this.q('app_meta?id=eq.' + encodeURIComponent(id) + '&select=id,json', {}).then(function (rows) {
-        if (!Array.isArray(rows) || !rows.length) return null;
-        try { return JSON.parse(rows[0].json); } catch (e) { return null; }
-      });
-    },
-
-    putAll: function () {
-      // push every existing local key as a blob (seed/backup)
-      var self = this;
-      var jobs = [];
-      this.keys().forEach(function (id) {
-        var key = self.keyForBlob(id);
-        var raw = null;
-        try { raw = localStorage.getItem(key); } catch (e) { raw = null; }
-        if (raw == null) return;
-        jobs.push(self.upsertBlob(id, raw));
-      });
-      return Promise.all(jobs).then(function () { self.connected = true; });
-    },
-
-    pullAll: function () {
-      var self = this;
-      return this.listBlobs().then(function (rows) {
-        rows.forEach(function (r) {
-          // skip blobs this tab edited and is about to (or still) pushes
-          if (self.pending[r.id]) return;
-          var key = self.keyForBlob(r.id);
-          if (!key) return;
-          try {
-            if (r.id === 'chat') {
-              self.applyChat(r.json);
-            } else {
-              var curRaw = localStorage.getItem(key);
-              // merge remote with local so optimistic data isn't lost
-              var mergedRaw = self.mergeBlobJson(r.id, r.json, curRaw || '[]');
-              if (mergedRaw !== curRaw) localStorage.setItem(key, mergedRaw);
-            }
-            self.connected = true;
-            // dispatch trustsync so pages re-render instantly (initial load + 5s polls)
-            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-              try {
-                var nm = 'trustsync:' + r.id;
-                window.dispatchEvent(new window.CustomEvent(nm, { detail: { source: 'pullAll' } }));
-              } catch (e) {}
-            }
-          } catch (e) {}
-        });
-        self.lastSync = Date.now();
-        try { localStorage.setItem('trustDbLastSync', String(self.lastSync)); } catch (e) {}
-        return rows.length;
-      });
-    },
-
-    // live sync: after a local write to a known key, push it up
-    enqueue: (function () {
-      var timers = {};
-      var flushing = false;
-      return function syncKey(key) {
-        var self = DB;
-        if (!self.ENABLED) return;
-        var id = self.blobForKey(key);
-        if (!id) return;
-        if (timers[id]) clearTimeout(timers[id]);
-        // optimistic broadcast for all blobs; array blobs are merged on receive so stale devices can't overwrite
-        var rawNow = null;
-        try { rawNow = localStorage.getItem(key); } catch (e) { rawNow = null; }
-        if (rawNow && rawNow.length < 100000 && self.chatLive) {
-          var body = { from: 'app', raw: rawNow, optimistic: true };
-          self.trySendRt({
-            topic: self.chatTopic, event: 'broadcast', ref: String(++self.rtRef), join_ref: '1',
-            payload: { type: 'broadcast', event: id, payload: body }
-          });
-        }
-        timers[id] = setTimeout(function () {
-          var raw = null;
-          try { raw = localStorage.getItem(key); } catch (e) { raw = null; }
-          if (raw == null) return;
-          self.pending[id] = true;
-          var op = id === 'chat' ? self.upsertChatMerged(raw) : self.upsertBlob(id, raw);
-          // broadcast AFTER the Supabase write succeeds so receivers pull fresh data
-          op.then(function () {
-            delete self.pending[id];
-            self.broadcastBlob(id);
-          }, function () { delete self.pending[id]; });
-        }, id === 'chat' ? 150 : 400);
-      };
-    })(),
-
-    start: function () {
-      var self = this;
-      if (!self.ENABLED) return;
-      function boot() {
-        // pull remote first, then seed local-if-remote-empty
-        self.pullAll()
-          .then(function (n) {
-            if (n === 0) return self.putAll();
-            return n;
+        var channel = window.supabase.channel('db_' + table)
+          .on('postgres_changes', { event: '*', schema: 'public', table: table }, function (payload) {
+            self._handleRealtime(table, payload);
           })
-          .catch(function () { self.connected = false; });
+          .subscribe(function (status) {
+            if (status === 'SUBSCRIBED') console.log('Realtime: ' + table + ' subscribed');
+          });
+        self._channels[table] = channel;
+      } catch (e) { console.warn('Realtime subscribe failed for ' + table, e); }
+    },
+
+    _handleRealtime: function (table, payload) {
+      var self = this;
+      var eventType = payload.eventType; // INSERT, UPDATE, DELETE
+      var newRecord = payload.new;
+      var oldRecord = payload.old;
+
+      switch (table) {
+        case 'users':
+          if (eventType === 'DELETE') {
+            self._cache.users = self._cache.users.filter(function (u) { return u.uid !== oldRecord.uid; });
+          } else {
+            var idx = self._cache.users.findIndex(function (u) { return u.uid === newRecord.uid; });
+            if (idx >= 0) self._cache.users[idx] = newRecord;
+            else self._cache.users.push(newRecord);
+          }
+          break;
+        case 'user_balances':
+          if (eventType === 'DELETE') {
+            if (self._cache.userBalances[oldRecord.uid]) delete self._cache.userBalances[oldRecord.uid][oldRecord.coin];
+          } else {
+            self._cache.userBalances[newRecord.uid] = self._cache.userBalances[newRecord.uid] || {};
+            self._cache.userBalances[newRecord.uid][newRecord.coin] = newRecord.amount;
+          }
+          break;
+        case 'verifications':
+          if (eventType === 'DELETE') delete self._cache.verifications[oldRecord.uid];
+          else self._cache.verifications[newRecord.uid] = newRecord;
+          break;
+        case 'loans':
+          if (eventType === 'DELETE') self._cache.loans = self._cache.loans.filter(function (l) { return l.id !== oldRecord.id; });
+          else {
+            var lidx = self._cache.loans.findIndex(function (l) { return l.id === newRecord.id; });
+            if (lidx >= 0) self._cache.loans[lidx] = newRecord;
+            else self._cache.loans.push(newRecord);
+          }
+          break;
+        case 'transactions':
+          if (eventType === 'DELETE') self._cache.transactions = self._cache.transactions.filter(function (t) { return t.id !== oldRecord.id; });
+          else {
+            var tidx = self._cache.transactions.findIndex(function (t) { return t.id === newRecord.id; });
+            if (tidx >= 0) self._cache.transactions[tidx] = newRecord;
+            else self._cache.transactions.unshift(newRecord); // newest first
+          }
+          break;
+        case 'trades':
+          if (eventType === 'DELETE') self._cache.trades = self._cache.trades.filter(function (t) { return t.id !== oldRecord.id; });
+          else {
+            var tridx = self._cache.trades.findIndex(function (t) { return t.id === newRecord.id; });
+            if (tridx >= 0) self._cache.trades[tridx] = newRecord;
+            else self._cache.trades.push(newRecord);
+          }
+          break;
+        case 'ai_orders':
+          if (eventType === 'DELETE') self._cache.aiOrders = self._cache.aiOrders.filter(function (o) { return o.id !== oldRecord.id; });
+          else {
+            var oidx = self._cache.aiOrders.findIndex(function (o) { return o.id === newRecord.id; });
+            if (oidx >= 0) self._cache.aiOrders[oidx] = newRecord;
+            else self._cache.aiOrders.push(newRecord);
+          }
+          break;
+        case 'chat_messages':
+          if (eventType === 'DELETE') {
+            if (self._cache.chatMessages[oldRecord.uid]) {
+              self._cache.chatMessages[oldRecord.uid] = self._cache.chatMessages[oldRecord.uid].filter(function (m) { return m.id !== oldRecord.id; });
+            }
+          } else {
+            self._cache.chatMessages[newRecord.uid] = self._cache.chatMessages[newRecord.uid] || [];
+            var mf = self._cache.chatMessages[newRecord.uid].findIndex(function (m) { return m.id === newRecord.id; });
+            if (mf >= 0) self._cache.chatMessages[newRecord.uid][mf] = newRecord;
+            else self._cache.chatMessages[newRecord.uid].push(newRecord);
+          }
+          break;
+        case 'coin_addresses':
+          if (eventType === 'DELETE') delete self._cache.coinAddresses[oldRecord.coin];
+          else self._cache.coinAddresses[newRecord.coin] = newRecord;
+          break;
+        case 'admin_settings':
+          if (eventType === 'DELETE') delete self._cache.adminSettings[oldRecord.key];
+          else self._cache.adminSettings[newRecord.key] = newRecord.value;
+          break;
       }
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', boot);
-      } else {
-        boot();
-      }
-      // keep localStorage fresh from Supabase so every open page sees
-      // changes made on OTHER devices (admin approves deposit -> user sees it)
-      var pollMs = 5000;
-      if (typeof window.setInterval === 'function') {
-        setInterval(function () {
-          if (typeof document !== 'undefined' && document.hidden) return;
-          self.pullAll().catch(function () {});
-        }, pollMs);
-      }
-      // realtime websocket for instant chat delivery (connects in background)
-      setTimeout(function () { self.connectChat(); }, 100);
-    }
+      self._notify('change:' + table, { event: eventType, record: newRecord, old: oldRecord });
+      self._notify('change', { table: table, event: eventType });
+    },
+
+    // Event system
+    _listeners: {},
+    on: function (event, fn) { (this._listeners[event] = this._listeners[event] || []).push(fn); },
+    off: function (event, fn) { var a = this._listeners[event]; if (a) this._listeners[event] = a.filter(function (f) { return f !== fn; }); },
+    _notify: function (event, data) { var a = this._listeners[event]; if (a) a.forEach(function (f) { try { f(data); } catch (e) {} }); },
+
+    // ===== Public API =====
+
+    // Users
+    getUsers: function () { return this._cache.users.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },
+    getUser: function (uid) { return this._cache.users.find(function (u) { return u.uid === uid; }); },
+    createUser: function (account, passwordHash, extra) {
+      var self = this;
+      var payload = Object.assign({ account: account, password_hash: passwordHash }, extra || {});
+      return this.q('users', { method: 'POST', body: payload }).then(function (rows) {
+        return rows[0];
+      });
+    },
+    updateUser: function (uid, patch) {
+      return this.q('users?uid=eq.' + uid, { method: 'PATCH', body: patch });
+    },
+
+    // Balances
+    getBalance: function (uid, coin) {
+      var b = this._cache.userBalances[uid];
+      return b ? (parseFloat(b[coin]) || 0) : 0;
+    },
+    getAllBalances: function (uid) { return this._cache.userBalances[uid] || {}; },
+    addBalance: function (uid, coin, delta) {
+      var self = this;
+      var current = self.getBalance(uid, coin);
+      var next = Math.max(0, current + delta);
+      return this.q('user_balances', { method: 'POST', body: { uid: uid, coin: coin, amount: next } })
+        .then(function () { return next; })
+        .catch(function () { return self.q('user_balances?uid=eq.' + uid + '&coin=eq.' + coin, { method: 'PATCH', body: { amount: next } }).then(function () { return next; }); });
+    },
+    setBalance: function (uid, coin, amount) {
+      return this.addBalance(uid, coin, amount - this.getBalance(uid, coin));
+    },
+
+    // Verifications
+    getVerification: function (uid) { return this._cache.verifications[uid] || null; },
+    getAllVerifications: function () { return Object.values(this._cache.verifications); },
+    submitVerification: function (uid, data) {
+      var payload = Object.assign({ uid: uid }, data, { status: 'pending', submitted_at: new Date().toISOString() });
+      return this.q('verifications', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+    updateVerificationStatus: function (uid, status, extra) {
+      var patch = Object.assign({ status: status, reviewed_at: new Date().toISOString() }, extra || {});
+      return this.q('verifications?uid=eq.' + uid, { method: 'PATCH', body: patch });
+    },
+
+    // Loans
+    getLoans: function () { return this._cache.loans.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },
+    getLoansForUser: function (uid) { return this._cache.loans.filter(function (l) { return l.uid === uid; }); },
+    getLoan: function (id) { return this._cache.loans.find(function (l) { return l.id === id; }); },
+    addLoan: function (data) {
+      var payload = Object.assign({}, data, { status: 'pending', created_at: new Date().toISOString() });
+      return this.q('loans', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+    updateLoanStatus: function (id, status, extra) {
+      var patch = Object.assign({ status: status }, extra || {});
+      if (status === 'approved') patch.approved_at = new Date().toISOString();
+      if (status === 'repaid') patch.repaid_at = new Date().toISOString();
+      return this.q('loans?id=eq.' + id, { method: 'PATCH', body: patch });
+    },
+
+    // Transactions
+    getTransactions: function () { return this._cache.transactions.slice(); },
+    getTransactionsForUser: function (uid) { return this._cache.transactions.filter(function (t) { return t.uid === uid; }); },
+    addTransaction: function (data) {
+      var payload = Object.assign({}, data, { created_at: new Date().toISOString() });
+      return this.q('transactions', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+
+    // Trades
+    getTrades: function () { return this._cache.trades.slice().sort(function (a, b) { return (b.opened_at || 0) - (a.opened_at || 0); }); },
+    getTradesForUser: function (uid) { return this._cache.trades.filter(function (t) { return t.uid === uid; }); },
+
+    // AI Orders
+    getAIOrders: function () { return this._cache.aiOrders.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },
+
+    // Chat
+    getChat: function (uid) { return (this._cache.chatMessages[uid] || []).slice().sort(function (a, b) { return (a.created_at || 0) - (b.created_at || 0); }); },
+    getChatUsers: function () { return Object.keys(this._cache.chatMessages).map(function (k) { return parseInt(k, 10); }); },
+    sendChatMessage: function (uid, fromRole, message) {
+      var payload = { uid: uid, from_role: fromRole, message: message, created_at: new Date().toISOString() };
+      return this.q('chat_messages', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+    markChatRead: function (uid) {
+      var msgs = this._cache.chatMessages[uid];
+      if (!msgs) return Promise.resolve();
+      var unreadIds = msgs.filter(function (m) { return m.from_role === 'user' && !m.read_at; }).map(function (m) { return m.id; });
+      if (!unreadIds.length) return Promise.resolve();
+      return this.q('chat_messages?uid=eq.' + uid + '&id=in.(' + unreadIds.join(',') + ')', { method: 'PATCH', body: { read_at: new Date().toISOString() } });
+    },
+
+    // Coin Addresses
+    getCoinAddresses: function () { return this._cache.coinAddresses; },
+    getCoinAddress: function (coin) { return this._cache.coinAddresses[coin] || null; },
+
+    // Admin Settings
+    getSetting: function (key) { return this._cache.adminSettings[key] || null; },
+    setSetting: function (key, value) {
+      return this.q('admin_settings', { method: 'POST', body: { key: key, value: value } })
+        .catch(function () { return this.q('admin_settings?key=eq.' + key, { method: 'PATCH', body: { value: value } }); }.bind(this));
+    },
+
+    // Auth helpers
+    register: function (account, password) {
+      var self = this;
+      // Check if user exists
+      return this.q('users?account=eq.' + encodeURIComponent(account), {}).then(function (rows) {
+        if (rows.length) throw new Error('Account exists');
+        // Hash password (simple for demo - use proper bcrypt in production)
+        var hash = 'hash_' + btoa(password + ':' + Date.now());
+        var uid = Date.now() % 1000000000;
+        return self.createUser(account, hash, { uid: uid, created_at: new Date().toISOString() }).then(function (user) {
+          // Initialize zero balances
+          ['USDT', 'TRX', 'BTC', 'ETH', 'BNB'].forEach(function (c) {
+            self.addBalance(user.uid, c, 0).catch(function () {});
+          });
+          return { ok: true, user: user };
+        });
+      });
+    },
+
+    login: function (account, password) {
+      return this.q('users?account=eq.' + encodeURIComponent(account), {}).then(function (rows) {
+        if (!rows.length) throw new Error('User not found');
+        var user = rows[0];
+        // Simple hash check (replace with bcrypt in production)
+        if (user.password_hash !== 'hash_' + btoa(password + ':' + user.created_at.slice(0, 10))) {
+          throw new Error('Invalid password');
+        }
+        return { ok: true, user: user };
+      });
+    },
+
+    // Utility
+    isReady: function () { return this.connected; },
+    onReady: function (fn) { if (this.connected) fn(); else this.on('ready', fn); }
   };
 
-  global.DB = DB;
-  DB.start();
-})(window);
+  return self;
+})();
+
+// Backward compat: expose as DB
+var DB = TrustDB;
+
+// Auto-init from config
+if (typeof SITE_CONFIG !== 'undefined') {
+  DB.init({
+    url: SITE_CONFIG.DB_URL,
+    anon: SITE_CONFIG.DB_ANON_KEY,
+    service: SITE_CONFIG.DB_SERVICE_KEY,
+    readonly: SITE_CONFIG.READONLY
+  });
+}

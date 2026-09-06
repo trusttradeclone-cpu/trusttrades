@@ -19,7 +19,7 @@
   // When true, the site can read from Supabase but only writes to the
   // app_meta blob table (shared settings/leaderboard data). Detailed tables
   // stay service-role/SQL only.
-  var READONLY = true;
+  var READONLY = false;
 
   var saved = null;
   try { saved = JSON.parse(localStorage.getItem('trustDbConfig') || 'null'); } catch (e) { saved = null; }
