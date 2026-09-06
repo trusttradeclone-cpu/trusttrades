@@ -581,7 +581,7 @@ broadcastBlob: function (id) {
         }, pollMs);
       }
       // realtime websocket for instant chat delivery (connects in background)
-      setTimeout(function () { self.connectChat(); }, 1200);
+      setTimeout(function () { self.connectChat(); }, 100);
     }
   };
 

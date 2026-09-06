@@ -286,11 +286,6 @@
     }
     TrustApp.initAdminLock();
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
-    renderUsers();
-    if (TrustApp.watchStorage) {
-      TrustApp.watchStorage(['trustUsers', 'trustBalances', 'trustVerifications'], function () { renderUsers(); });
-    window.addEventListener('trustver', renderUsers);
-    }
     window.addEventListener('trustsync:users', function () {
       try { renderUsers(); } catch (e) {}
       if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { try { renderUsers(); } catch (e) {} });
@@ -299,6 +294,12 @@
       try { renderUsers(); } catch (e) {}
       if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { try { renderUsers(); } catch (e) {} });
     });
+    if (TrustApp.watchStorage) {
+      TrustApp.watchStorage(['trustUsers', 'trustBalances', 'trustVerifications'], function () { renderUsers(); });
+    window.addEventListener('trustver', renderUsers);
+    }
+    renderUsers();
+    setTimeout(renderUsers, 150);
     setInterval(renderUsers, 5000);
     var searchBox = document.getElementById('userSearch');
     searchBox.addEventListener('input', function () {
