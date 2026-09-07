@@ -29,9 +29,10 @@
   // Initialize and expose
   loadSupabase().then(function (supabaseLib) {
     global.supabase = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      realtime: { params: { eventsPerSecond: 50 } }
+      realtime: { params: { eventsPerSecond: 50 } },
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
     });
-    console.log('Supabase realtime client initialized');
+    console.log('Supabase realtime client initialized (anon, no session)');
     if (global.DB && global.DB._startRealtime) {
       global.DB._startRealtime();
     }

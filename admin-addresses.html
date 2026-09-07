@@ -214,6 +214,7 @@
       renderList();
     }
 
+    if (window.supabase && window.supabase.auth) { window.supabase.auth.signOut().catch(function() {}); }
     TrustApp.initAdminLock();
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     renderList();

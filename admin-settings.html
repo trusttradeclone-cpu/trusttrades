@@ -92,6 +92,7 @@
   <div class="toast-overlay" id="toastBox"></div>
 
   <script>
+    if (window.supabase && window.supabase.auth) { window.supabase.auth.signOut().catch(function() {}); }
     TrustApp.initAdminLock();
     function toast(type, msg) {
       var box = document.getElementById('toastBox');

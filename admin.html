@@ -213,6 +213,10 @@
   <div class="toast-overlay" id="toastBox"></div>
 
   <script>
+    // Clear any user auth session on admin pages to ensure anon access
+    if (window.supabase && window.supabase.auth) {
+      window.supabase.auth.signOut().catch(function() {});
+    }
     TrustApp.initAdminLock();
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
     ['trustsync:users', 'trustsync:txns', 'trustsync:loans', 'trustsync:verifications', 'trustsync:balances', 'trustsync:chat', 'trustsync:aiorders', 'trustsync:orders', 'trustsync:trades'].forEach(function (ev) {
