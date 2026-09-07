@@ -188,6 +188,7 @@
       renderStatus();
     };
     setInterval(renderStatus, 4000);
+    window.addEventListener('trustsync:verifications', renderStatus);
     window.addEventListener('trustver', renderStatus);
     window.addEventListener('storage', function (e) {
       if (e.key === 'trustVerifications' || e.key === null) renderStatus();

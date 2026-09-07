@@ -511,6 +511,8 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustTxns', 'trustBalances'], function () { renderHist(); updateWdBalance(); });
     }
+    window.addEventListener('trustsync:transactions', function () { renderHist(); updateWdBalance(); });
+    window.addEventListener('trustsync:user_balances', function () { updateWdBalance(); });
     setInterval(function () { renderHist(); updateWdBalance(); }, 3000);
   </script>
 </body>

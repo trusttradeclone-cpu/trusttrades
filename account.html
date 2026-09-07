@@ -92,6 +92,11 @@
     var IS_CRYPTO = {};
     COIN_ORDER.forEach(function (c) { IS_CRYPTO[c] = 1; });
 
+    // Cache for instant rendering
+    var _balanceCache = null;
+    var _priceCache = {};
+    var _renderScheduled = false;
+
     function walletCoins(b) {
       var list = COIN_ORDER.slice();
       if (b) Object.keys(b).forEach(function (c) { if (IS_CRYPTO[c] && list.indexOf(c) === -1) list.push(c); });
@@ -105,14 +110,22 @@
       return '<div class="wallet-icon"><img src="' + src + '" alt="' + c + '" onerror="this.style.display=\'none\';this.parentNode.style.background=\'' + color + '\';this.parentNode.style.color=\'#fff\';this.parentNode.style.fontWeight=\'800\';this.parentNode.textContent=\'' + c.charAt(0) + '\';"></div>';
     }
 
+    function getCachedPrice(sym) {
+      if (_priceCache[sym] !== undefined) return _priceCache[sym];
+      var d = TrustApp.findCoin ? TrustApp.findCoin(sym) : null;
+      var price = d ? (parseFloat(d.price) || 0) : 0;
+      _priceCache[sym] = price;
+      return price;
+    }
+
     function renderBalances() {
       var uid = TrustApp.getUserId();
       if (!uid) return;
       var b = TrustApp.getBalances(uid);
+      _balanceCache = b;
       function usdOf(sym, bal) {
         if (sym === 'USDT') return parseFloat(bal) || 0;
-        var d = TrustApp.findCoin ? TrustApp.findCoin(sym) : null;
-        var price = d ? (parseFloat(d.price) || 0) : 0;
+        var price = getCachedPrice(sym);
         return (parseFloat(bal) || 0) * price;
       }
       var coins = walletCoins(b);
@@ -142,14 +155,43 @@
           + v.label + '</span>';
       }
     }
+
+    function scheduleRender() {
+      if (_renderScheduled) return;
+      _renderScheduled = true;
+      requestAnimationFrame(function () {
+        _renderScheduled = false;
+        renderBalances();
+      });
+    }
+
+    // Instant initial render from cache if available
+    if (TrustApp.getBalances) {
+      var uid = TrustApp.getUserId();
+      if (uid) {
+        var b = TrustApp.getBalances(uid);
+        if (b && Object.keys(b).length) {
+          _balanceCache = b;
+          renderBalances();
+        }
+      }
+    }
+
     renderBalances();
+
+    // Real-time updates via trustsync
+    window.addEventListener('trustsync:user_balances', scheduleRender);
+    window.addEventListener('trustsync:transactions', scheduleRender);
+    window.addEventListener('trustsync:users', scheduleRender);
+
+    // Fallback polling
     window.addEventListener('storage', function (e) {
-      if (e.key === 'trustBalances' || e.key === null) renderBalances();
+      if (e.key === 'trustBalances' || e.key === null) scheduleRender();
     });
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) renderBalances();
+      if (!document.hidden) scheduleRender();
     });
-    setInterval(renderBalances, 10000);
+    setInterval(scheduleRender, 10000);
   </script>
 </body>
 </html>
