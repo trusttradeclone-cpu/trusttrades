@@ -1686,10 +1686,9 @@
     if (dbActive()) {
       var next = getBalance(uid, coin) + delta;
       next = Math.max(0, next);
-      try { DB.addBalance(uid, coin, delta).catch(function () {}); } catch (e) {}
-      return next;
+      return DB.addBalance(uid, coin, delta).then(function () { return next; }).catch(function () { return next; });
     }
-    return Math.max(0, getBalance(uid, coin) + delta);
+    return Promise.resolve(Math.max(0, getBalance(uid, coin) + delta));
   }
 
   function getTxns() {
@@ -1704,7 +1703,13 @@
     return prefix + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1000);
   }
 
-  function addTxn(obj) {
+  // ID mapping: generated ID -> DB ID (for setTxnStatus fallback)
+  var _txnIdMap = {};
+
+// Local pending transactions (for immediate confirm before DB sync)
+  var _pendingTxns = {};
+
+function addTxn(obj) {
     var t = {
       id: genId(obj.type || 'TXN'),
       uid: obj.uid || '',
@@ -1718,6 +1723,7 @@
       proofName: obj.proofName || '',
       createdAt: new Date().toISOString()
     };
+    _pendingTxns[t.id] = t;
     if (dbActive()) {
       var dir = obj.dir === 'debit' ? 'debit' : 'credit';
       var note = obj.note || '';
@@ -1731,20 +1737,39 @@
         reference_id: '',
         description: desc
       }).then(function (row) {
-        if (row && row.id) t.dbId = row.id;
+        if (row && row.id) {
+          _txnIdMap[t.id] = row.id;
+        }
         _notifyChange('transactions');
-      }).catch(function () {});
-      return t;
+}).catch(function () {});
     }
     return t;
   }
 
   function setTxnStatus(id, status) {
     if (dbActive()) {
-      DB.setTransactionStatus(id, status).then(function () {
+      var txns = getTxns();
+      var txn = txns.find(function (t) { return t.id === id; });
+      var realId = id;
+      // Check pending local map first (for immediate confirm before DB sync)
+      if (!txn && _pendingTxns[id]) {
+        txn = _pendingTxns[id];
+      }
+      // Fallback: if not found by ID, look up real ID from map
+      if (!txn && _txnIdMap[id]) {
+        realId = _txnIdMap[id];
+        txn = txns.find(function (t) { return t.id === realId; });
+      }
+      return DB.setTransactionStatus(realId, status).then(function () {
         _notifyChange('transactions');
-      }).catch(function () {});
-      return { id: id, status: status };
+        if (status === 'confirmed' && txn) {
+          var delta = txn.type === 'deposit' ? txn.amount : -txn.amount;
+          if (txn.type === 'deposit' || txn.type === 'withdraw') {
+            return addBalance(txn.uid, txn.coin, delta);
+          }
+        }
+        return { id: id, status: status };
+      }).catch(function () { return { id: id, status: status }; });
     }
     return { id: id, status: status };
   }
@@ -2922,6 +2947,7 @@
   global.unlockAdmin = unlockAdmin;
   global.restoreSession = restoreSession;
   global.getSessionState = getSessionState;
+  global.getToken = getToken;
 
   // Also add to TrustApp for convenience
   global.TrustApp.restoreSession = restoreSession;
