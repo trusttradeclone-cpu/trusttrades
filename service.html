@@ -186,20 +186,21 @@
     }
 
     function guestUid() {
-      try {
-        var g = localStorage.getItem('trustGuestUid');
-        if (g && TrustApp.accountByUid(g)) return g;
-        var r = TrustApp.register('Guest' + String(Math.floor(1000 + Math.random() * 9000)) + String(Date.now()).slice(-3), 'guest' + Date.now());
-        if (r.ok) {
-          localStorage.setItem('trustGuestUid', r.user.uid);
-          return r.user.uid;
-        }
-      } catch (e) {}
-      return null;
+      // Guests are real rows in Supabase; create/restore one asynchronously.
+      if (TrustApp.ensureGuest) {
+        return TrustApp.ensureGuest().then(function (g) { return g; }).catch(function () { return null; });
+      }
+      return Promise.resolve(TrustApp.getUserId() || null);
     }
 
-    var uid = TrustApp.getUserId() || guestUid();
-    TrustApp.ensureSupportGreeting(uid);
+    var uid = null;
+    window.addEventListener('trustsync:users', function () { render(); });
+    window.addEventListener('trustsync:chat_messages', function () { render(); });
+    guestUid().then(function (g) {
+      uid = g;
+      TrustApp.ensureSupportGreeting(uid);
+      render();
+    });
     var pinnedBottom = true;
 
     var MAX_ATT_BYTES = 1200000;
@@ -327,18 +328,6 @@
     });
     render();
     setInterval(render, 2000);
-    window.addEventListener('trustchat', render);
-    var chatSyncBusy = false;
-    var chatSyncDone = function () { chatSyncBusy = false; };
-    setInterval(function () {
-      if (document.hidden || chatSyncBusy) return;
-      if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
-      chatSyncBusy = true;
-      DB.pullBlob('chat').then(function () { render(); }).then(chatSyncDone, chatSyncDone);
-    }, 1000);
-    window.addEventListener('storage', function (e) {
-      if (e.key === 'trustChat' || e.key === null) render();
-    });
   </script>
 </body>
 </html>

@@ -92,11 +92,6 @@
       TrustApp.login(user, pass).then(function (res) {
         btn.disabled = false; btn.textContent = 'Login';
         if (!res.ok) { toast('error', res.msg || 'Login failed'); return; }
-        if (document.getElementById('remember').checked) {
-          try { localStorage.setItem('savedUsername', user); localStorage.setItem('savedPassword', pass); localStorage.setItem('rememberMe', '1'); } catch (err) {}
-        } else {
-          try { localStorage.removeItem('savedUsername'); localStorage.removeItem('savedPassword'); localStorage.removeItem('rememberMe'); } catch (err) {}
-        }
         toast('success', 'Login successful');
         var r = getParam('r');
         setTimeout(function () { location.href = r || 'index.html'; }, 800);
@@ -117,12 +112,7 @@
     }
 
     try {
-      if (localStorage.getItem('rememberMe') === '1') {
-        fields[0].value = localStorage.getItem('savedUsername') || '';
-        fields[1].value = localStorage.getItem('savedPassword') || '';
-        document.getElementById('remember').checked = true;
-        updateBtn();
-      }
+      document.getElementById('remember').checked = false;
     } catch (err) {}
     if (TrustApp.applyWalletBtn) TrustApp.applyWalletBtn();
   </script>

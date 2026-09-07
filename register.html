@@ -101,10 +101,6 @@
       TrustApp.register(account, fields[1].value, fields[3] ? fields[3].value : '').then(function (res) {
         btn.disabled = false; btn.textContent = 'Register';
         if (!res.ok) { toast('error', res.msg || 'Registration failed'); return; }
-        try {
-          localStorage.setItem('trustLoggedIn', '1');
-          localStorage.setItem('trustUserId', res.user.uid);
-        } catch (err) {}
         toast('success', 'Registration successful. Your UID: ' + res.user.uid, 4500);
         setTimeout(function () { location.href = 'index.html'; }, 2200);
       }).catch(function (err) {

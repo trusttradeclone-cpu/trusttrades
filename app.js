@@ -81,9 +81,7 @@
     return copy;
   }
 
-  function getConfig() {
-    var saved = null;
-    try { saved = JSON.parse(localStorage.getItem('trustAppConfig') || 'null'); } catch (e) { saved = null; }
+  function mergeConfig(saved) {
     var cfg = getConfigDefaults();
     if (saved && typeof saved === 'object') {
       Object.keys(DEFAULT_CONFIG).forEach(function (k) {
@@ -93,22 +91,65 @@
     return cfg;
   }
 
+  // DB-backed brand config (admin_settings 'config' key); defaults apply
+  // until Supabase connects, then the database version wins.
+  function getConfig() {
+    var saved = null;
+    try {
+      if (dbActive() && DB.getSetting) {
+        saved = DB.getSetting('config');
+        if (typeof saved === 'string') { try { saved = JSON.parse(saved) || null; } catch (e) { saved = null; } }
+      }
+    } catch (e) {}
+    return mergeConfig(saved);
+  }
+
+  function reloadConfigFromDb() {
+    var cfg = getConfig();
+    global.AppConfig = cfg;
+    try {
+      if (document.title && cfg.appTitle && document.title.indexOf('Trust') !== -1 && document.title.indexOf(cfg.appTitle) === -1) {
+        document.title = document.title.split('Trust').join(cfg.appTitle);
+      }
+    } catch (e) {}
+    return cfg;
+  }
+
   function saveConfig(cfg) {
     var out = {};
     Object.keys(DEFAULT_CONFIG).forEach(function (k) {
       if (cfg[k] !== undefined) out[k] = cfg[k];
     });
-    try { localStorage.setItem('trustAppConfig', JSON.stringify(out)); } catch (e) {}
-    global.AppConfig = getConfig();
-    dbSync('trustAppConfig');
+    if (dbActive() && DB.setSetting) DB.setSetting('config', JSON.stringify(out)).catch(function () {});
+    global.AppConfig = mergeConfig(out);
+    return out;
   }
 
   function resetConfig() {
-    try { localStorage.removeItem('trustAppConfig'); } catch (e) {}
-    global.AppConfig = getConfig();
+    if (dbActive() && DB.setSetting) DB.setSetting('config', JSON.stringify({})).catch(function () {});
+    global.AppConfig = getConfigDefaults();
   }
 
-  global.AppConfig = getConfig();
+  global.AppConfig = mergeConfig(null);
+
+  (function bootDbHooks() {
+    if (typeof DB === 'undefined' || !DB) return;
+    function hook() {
+      try { reloadConfigFromDb(); } catch (e) {}
+      try { applyI18n(); } catch (e) {}
+      try { updateMenuUser(); } catch (e) {}
+    }
+    if (DB.onReady) DB.onReady(hook);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('trustsync:admin_settings', hook);
+      window.addEventListener('trustsync:users', function () { try { updateMenuUser(); } catch (e) {} });
+    }
+    if (typeof document !== 'undefined') {
+      restoreSession().then(function () {
+        try { applyI18n(); updateMenuUser(); } catch (e) {}
+      });
+    }
+  })();
 
   (function applyAppTitle() {
     try {
@@ -256,10 +297,10 @@
     location.href = AppConfig.customerServiceUrl || 'service.html';
   }
 
-  var WALLET_KEY = 'trustWallet';
+  var _wallet = null; // in-memory only; sessions persist in the DB
 
   function getWallet() {
-    try { return JSON.parse(localStorage.getItem(WALLET_KEY)) || null; } catch (e) { return null; }
+    return _wallet;
   }
 
   function genWalletAddress() {
@@ -275,8 +316,6 @@
     try {
       var id = String((AppConfig && AppConfig.walletConnectProjectId) || '').trim();
       if (id && id.length >= 10 && id !== 'YOUR_PROJECT_ID') return id;
-      var saved = localStorage.getItem('WC_PROJECT_ID');
-      if (saved && saved.length >= 10) return saved;
     } catch (e) {}
     return WC_FALLBACK_PROJECT_ID;
   }
@@ -532,7 +571,7 @@
   function connectWallet() {
     var existing = getWallet();
     if (existing && existing.address && isLoggedIn()) {
-      localStorage.removeItem(WALLET_KEY);
+      _wallet = null;
       closeWalletConnect();
       applyWalletBtn();
       toast('info', 'Wallet disconnected');
@@ -564,30 +603,41 @@
       if (settled) return;
       settled = true;
       if (!addr) { fail('Wallet connection failed'); return; }
-      try { localStorage.setItem(WALLET_KEY, JSON.stringify({ address: addr, provider: name, source: source, connectedAt: Date.now() })); } catch (e) {}
+      _wallet = { address: addr, provider: name, source: source, connectedAt: Date.now() };
       if (source !== 'WalletConnect v2') closeWalletConnect();
       var wlEnabled = true;
       try { wlEnabled = !!(window.AppConfig && window.AppConfig.walletLoginEnabled !== false); } catch (e) {}
-      if (wlEnabled && walletLogin(addr).ok) {
-        try { toast('success', t('wallet.loginSuccess') || 'Wallet login successful'); } catch (e) {}
-        setTimeout(function () {
-          try {
-            var r = '';
-            var qs = window.location.search;
-            if (qs && qs.indexOf('r=') !== -1) {
-              var parts = qs.replace(/^\?/, '').split('&');
-              for (var i = 0; i < parts.length; i++) {
-                var kv = parts[i].split('=');
-                if (kv[0] === 'r') r = decodeURIComponent(kv[1] || '');
-              }
-            }
-            window.location.href = r || 'index.html';
-          } catch (e) {}
-        }, 1000);
-      } else {
+      function after() { finish(); }
+      function connectedToast() {
         try { toast('success', (name || 'Wallet') + ' connected: ' + addr.slice(0, 6) + '...' + addr.slice(-4)); } catch (e) {}
       }
-      finish();
+      if (wlEnabled) {
+        Promise.resolve(walletLogin(addr)).then(function (r) {
+          if (r && r.ok) {
+            try { toast('success', t('wallet.loginSuccess') || 'Wallet login successful'); } catch (e) {}
+            setTimeout(function () {
+              try {
+                var r2 = '';
+                var qs = window.location.search;
+                if (qs && qs.indexOf('r=') !== -1) {
+                  var parts = qs.replace(/^\?/, '').split('&');
+                  for (var i = 0; i < parts.length; i++) {
+                    var kv = parts[i].split('=');
+                    if (kv[0] === 'r') r2 = decodeURIComponent(kv[1] || '');
+                  }
+                }
+                window.location.href = r2 || 'index.html';
+              } catch (e) {}
+            }, 1000);
+          } else {
+            connectedToast();
+          }
+          after();
+        }).catch(function () { connectedToast(); after(); });
+      } else {
+        connectedToast();
+        after();
+      }
     }
     // Run both at once: the WalletConnect QR opens immediately so the user
     // always sees a code to scan, while an installed extension wallet can
@@ -1015,12 +1065,35 @@
     'cp.backToAccount': { en: 'Back to Account', zh: '返回账户', ja: 'アカウントへ戻る', ko: '계정으로 돌아가기', fa: 'بازگشت به حساب', de: 'Zurück zum Konto', fr: 'Retour au compte', es: 'Volver a la cuenta', it: 'Torna al conto', pt: 'Voltar à conta', ru: 'Вернуться в аккаунт' }
   };
 
+  var _lang = null;
+
+  function langLabel(code) {
+    return (LANGS && LANGS[code]) || 'English';
+  }
+
   function getLang() {
-    try {
-      var s = localStorage.getItem('selectedLanguage');
-      if (s && LANGS[s]) return s;
-    } catch (e) {}
-    return 'English';
+    if (_lang && LANGS[_lang]) return _lang;
+    var c = 'en';
+    try { if (getConfig().defaultLanguage) c = getConfig().defaultLanguage; } catch (e) {}
+    var dbLang = null;
+    try { if (dbActive() && DB.getSetting) dbLang = DB.getSetting('language'); } catch (e) {}
+    if (dbLang && LANGS[dbLang]) return dbLang;
+    return langLabel(c);
+  }
+
+  function setLang(el, label) {
+    if (!LANGS[label]) label = 'English';
+    _lang = label;
+    if (dbActive()) {
+      try {
+        if (_session && _session.uid != null && !_session.is_guest) DB.setUserLanguage(_session.uid, label).catch(function () {});
+        var tok = getToken();
+        if (tok) DB.updateSession(tok, { language: label }).catch(function () {});
+      } catch (e) {}
+    }
+    applyI18n();
+    var menu = document.getElementById('langMenu');
+    if (menu) menu.style.display = 'none';
   }
 
   function t(key) {
@@ -1053,29 +1126,23 @@
     });
   }
 
-  function setLang(el, label) {
-    if (!LANGS[label]) label = 'English';
-    try { localStorage.setItem('selectedLanguage', label); } catch (e) {}
-    applyI18n();
-    var menu = document.getElementById('langMenu');
-    if (menu) menu.style.display = 'none';
-  }
+  document.addEventListener('DOMContentLoaded', function () {
+    try { applyI18n(); } catch (e) {}
+  });
 
   function toggleLang() {
     var m = document.getElementById('langMenu');
     if (m) m.style.display = m.style.display === 'none' ? 'block' : 'none';
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    try { applyI18n(); } catch (e) {}
-  });
-
   function getUserId() {
-    try { return localStorage.getItem('trustUserId') || null; } catch (e) { return null; }
+    return (_session && _session.uid != null) ? String(_session.uid) : null;
   }
 
   function isLoggedIn() {
-    try { return localStorage.getItem('trustLoggedIn') === '1'; } catch (e) { return false; }
+    // Anyone with a DB identity counts as logged in, including guest rows
+    // created by wallet-login / service chat (they register to become accounts).
+    return !!(_session && _session.uid != null);
   }
 
   function updateMenuUser() {
@@ -1093,6 +1160,146 @@
     } else if (vipArea.querySelector('.vip-label')) {
       vipArea.innerHTML = '<span class="vip-label">' + (t('menu.function') || 'Function') + '</span>';
     }
+  }
+
+  /* ---- session layer (DB sessions table + small cookie) ---- */
+  var SESSION_COOKIE = 'trsstok';
+  var _session = null; // { token, uid, is_guest, admin, language }
+
+  function getToken() {
+    try {
+      var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + SESSION_COOKIE + '=([^;]+)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    } catch (e) { return null; }
+  }
+
+  function setToken(t) {
+    try {
+      var exp = new Date(Date.now() + 30 * 24 * 3600000).toUTCString();
+      document.cookie = SESSION_COOKIE + '=' + encodeURIComponent(t) + '; expires=' + exp + '; path=/; SameSite=Lax';
+    } catch (e) {}
+  }
+
+  function clearToken() {
+    try { document.cookie = SESSION_COOKIE + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax'; } catch (e) {}
+  }
+
+  function rndToken() {
+    var c = '0123456789abcdef';
+    var s = '';
+    for (var i = 0; i < 32; i++) s += c[Math.floor(Math.random() * 16)];
+    return s;
+  }
+
+  // Resolve the current session from the database. Waits for the DB when
+  // it has not connected yet.
+  function restoreSession() {
+    function doRestore() {
+      var tok = getToken();
+      if (!tok) { _session = null; return Promise.resolve(null); }
+      if (!dbActive()) return Promise.resolve(_session || null);
+      return DB.getSession(tok).then(function (s) {
+        if (!s) { _session = null; return null; }
+        _session = {
+          token: tok,
+          uid: s.uid == null ? null : s.uid,
+          is_guest: !!s.is_guest,
+          admin: !!s.admin,
+          language: s.language || null
+        };
+        if (_session.language && LANGS[_session.language]) _lang = _session.language;
+        if (_session.uid != null && !_session.is_guest) {
+          try {
+            var dl = DB.getUserLanguage(_session.uid);
+            if (dl && LANGS[dl]) _lang = dl;
+          } catch (e) {}
+        }
+        return _session;
+      }).catch(function () { return _session || null; });
+    }
+    if (dbActive()) return doRestore();
+    return new Promise(function (res) {
+      if (typeof DB !== 'undefined' && DB.onReady) DB.onReady(function () { res(doRestore()); });
+      else res(doRestore());
+    });
+  }
+
+  // Make sure a session row exists for the current cookie.
+  function _ensureSessionRow() {
+    var tok = getToken();
+    var lang = _lang || langLabel('en');
+    if (!tok) {
+      tok = rndToken();
+      setToken(tok);
+      return DB.createSession(tok, null, { language: lang }).then(function () {
+        _session = { token: tok, uid: null, is_guest: false, admin: false, language: lang };
+        return _session;
+      }).catch(function () {
+        _session = { token: tok, uid: null, is_guest: false, admin: false, language: lang };
+        return _session;
+      });
+    }
+    return restoreSession().then(function (s) {
+      if (s) return s;
+      return DB.createSession(tok, null, { language: lang }).then(function () {
+        _session = { token: tok, uid: null, is_guest: false, admin: false, language: lang };
+        return _session;
+      });
+    });
+  }
+
+  function _activateSession(uid, isGuest, admin, language) {
+    var tok = getToken();
+    var applyLocal = function (t, p) {
+      _session = { token: t, uid: uid == null ? null : uid, is_guest: !!isGuest, admin: !!admin, language: language || null };
+      if (language && LANGS[language]) _lang = language;
+      return p;
+    };
+    if (tok) {
+      return applyLocal(tok, DB.updateSession(tok, {
+        uid: uid == null ? null : uid, is_guest: !!isGuest, admin: !!admin, language: language || null
+      }).then(function () { return _session; }));
+    }
+    tok = rndToken();
+    setToken(tok);
+    return applyLocal(tok, DB.createSession(tok, uid, {
+      is_guest: !!isGuest, admin: !!admin, language: language || null
+    }).then(function () { return _session; }));
+  }
+
+  function _clearSession() {
+    var tok = getToken();
+    _session = null;
+    if (tok && dbActive()) DB.deleteSession(tok).catch(function () {});
+    clearToken();
+  }
+
+  // service.html: ensure a usable identity (guest user row when not logged in).
+  function ensureGuest() {
+    var uid = getUserId();
+    if (uid && _session && _session.uid != null) return Promise.resolve(uid);
+    return _ensureSessionRow().then(function (s) {
+      if (s.uid) return String(s.uid);
+      var createdAt = new Date().toISOString();
+      var used = {};
+      try { DB.usersList().forEach(function (u) { used[String(u.uid)] = true; }); } catch (e) {}
+      var gid = parseInt(DB._genUid(used), 10);
+      return DB.createUser('guest_' + rndToken().slice(0, 6), null, { uid: gid, created_at: createdAt, is_guest: true }).then(function () {
+        return _activateSession(gid, true, false, getLang()).then(function () { return String(gid); });
+      });
+    });
+  }
+
+  function currentUser() {
+    var uid = getUserId();
+    if (!uid) return null;
+    try {
+      if (dbActive()) {
+        var u = DB.getUserStr(uid);
+        return u ? dbUserToApp(u) : null;
+      }
+    } catch (e) {}
+    return null;
   }
 
   var USERS_KEY = 'trustUsers';
@@ -1117,7 +1324,11 @@
       role: u.is_admin ? 'admin' : undefined,
       isAdmin: u.is_admin ? true : undefined,
       referral_code: u.referral_code,
-      referred_by: u.referred_by
+      referred_by: u.referred_by,
+      language: u.language || 'en',
+      profitMode: !!u.profit_mode,
+      greeted: !!u.greeted,
+      isGuest: !!u.is_guest
     };
   }
 
@@ -1158,6 +1369,65 @@
     };
   }
 
+  function dbTradeToApp(t) {
+    return {
+      id: String(t.id),
+      uid: t.uid,
+      pair: t.pair || '',
+      side: t.side || 'up',
+      amount: parseFloat(t.amount) || 0,
+      price: parseFloat(t.price) || 0,
+      fee: parseFloat(t.fee) || 0,
+      user: t.account || t.uid || '',
+      createdAt: t.opened_at || t.created_at,
+      created_at: t.opened_at || t.created_at,
+      status: t.status || 'open',
+      duration: parseInt(t.duration, 10) || 0,
+      sellPrice: t.sell_price == null ? null : parseFloat(t.sell_price),
+      settledAt: t.settled_at || null,
+      profit: parseFloat(t.profit) || 0
+    };
+  }
+
+  function dbAiOrderToApp(o) {
+    var scheds = o.schedules;
+    if (typeof scheds === 'string') {
+      try { scheds = JSON.parse(scheds); } catch (e) { scheds = []; }
+    }
+    return {
+      id: String(o.id),
+      uid: o.uid,
+      account: o.account || o.uid || '',
+      productId: 1,
+      product: o.product || (o.symbol || 'AI Quant'),
+      period: parseInt(o.period, 10) || 7,
+      rateMin: parseFloat(o.rate_min) || 0,
+      rateMax: parseFloat(o.rate_max) || 0,
+      amount: parseFloat(o.amount) || 0,
+      principal: o.principal != null ? parseFloat(o.principal) : (parseFloat(o.amount) || 0),
+      profit: parseFloat(o.profit) || 0,
+      settledDays: parseInt(o.settled_days, 10) || 0,
+      status: o.status || 'pending',
+      startAt: o.start_at || null,
+      endAt: o.end_at || null,
+      createdAt: o.created_at,
+      created_at: o.created_at,
+      schedules: scheds || []
+    };
+  }
+
+  function dbChatToApp(m) {
+    return {
+      mid: String(m.id),
+      from: m.from_role === 'admin' ? 'admin' : 'user',
+      text: m.message || '',
+      at: m.created_at,
+      seen: !!m.read_at,
+      deleted: !!m.deleted,
+      editedAt: m.edited_at || null
+    };
+  }
+
   function dbVerToApp(v) {
     return {
       uid: v.uid,
@@ -1170,36 +1440,28 @@
       status: v.status || 'pending',
       submittedAt: v.submitted_at || null,
       reviewedAt: v.reviewed_at || null,
-      note: v.rejection_reason || ''
+      note: v.rejection_reason || '',
+      advanced: v.advanced || '',
+      advancedStatus: v.advanced_status || null,
+      advancedSubmittedAt: v.advanced_submitted_at || null,
+      advancedReviewedAt: v.advanced_reviewed_at || null,
+      advancedNote: v.advanced_note || ''
     };
   }
 
   function getUsers() {
     if (dbActive()) {
       try {
-        return (DB.getUsers() || []).map(dbUserToApp);
+        // Admin/user lists exclude guest blocks; accountByUid still finds them.
+        return (DB.getUsers() || []).filter(function (u) { return !u.is_guest; }).map(dbUserToApp);
       } catch (e) {}
-    } else if (typeof DB === 'undefined' || (DB && DB.ENABLED !== true)) {
-      var users = [];
-      try { users = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) { users = []; }
-      return users.filter(function (u) { return !u || !u.deleted; });
     }
     return [];
   }
 
-  function saveUsers(users) {
-    // keep any existing deleted-user tombstones across saves so a later write
-    // from this device can never resurrect an account another device removed
-    var existing = [];
-    try { existing = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) {}
-    var have = {};
-    (users || []).forEach(function (u) { if (u) have[u.uid] = true; });
-    (existing || []).forEach(function (u) {
-      if (u && u.deleted && !have[u.uid]) users.push(u);
-    });
-    try { localStorage.setItem(USERS_KEY, JSON.stringify(users)); } catch (e) {}
-    dbSync(USERS_KEY);
-  }
+  // No local persistence: data lives in Supabase. Kept as a no-op so callers
+  // that previously flushed a localStorage snapshot keep working.
+  function saveUsers(users) { return users; }
 
   function genUid(users) {
     var used = {};
@@ -1212,14 +1474,32 @@
   function register(account, password, referralCode) {
     account = trim(account);
     if (!account || !password) return { ok: false, msg: 'Please fill in all fields' };
-    // Use DB.register if available (new Supabase tables), fallback to localStorage
-    if (typeof DB !== 'undefined' && DB.register) {
-      return DB.register(account, password).then(function (res) {
+    if (typeof DB !== 'undefined' && DB.register && dbActive()) {
+      var lang = getLang();
+      // If a guest user row was created for this browser (service.html), convert
+      // it to a real account, preserving the UID and balance history.
+      var guestUid = (_session && _session.is_guest && _session.uid != null) ? _session.uid : null;
+      var hasGuest = false;
+      if (guestUid != null) {
+        try { hasGuest = !!DB.getUserStr(guestUid); } catch (e) {}
+      }
+      var guestPending = null;
+      if (hasGuest) {
+        var g = DB.getUserStr(guestUid);
+        var h = DB._hashPassword(password, g.created_at || new Date().toISOString());
+        guestPending = DB.convertGuest(guestUid, account, h).then(function () {
+          return { ok: true, user: Object.assign({}, g, { account: account, password_hash: h, is_guest: false }) };
+        });
+      } else {
+        guestPending = Promise.resolve(null);
+      }
+      return guestPending.then(function (pre) {
+        return pre || DB.register(account, password);
+      }).then(function (res) {
         if (res.ok && res.user) {
           var user = res.user;
           var code = trim(referralCode || '');
           if (code) {
-            // Find inviter by referral code (DB returns a user row; wrap so it can be a promise or a value)
             var inv = DB.getUserByReferralCode ? DB.getUserByReferralCode(code) : null;
             return Promise.resolve(inv).then(function (inviter) {
               if (!inviter) return { ok: false, msg: 'Invalid referral code' };
@@ -1234,92 +1514,64 @@
           return { ok: true, user: user };
         }
         return res;
+      }).then(function (res) {
+        if (res.ok && res.user) {
+          return _activateSession(res.user.uid, false, !!res.user.is_admin, lang).then(function () { return res; });
+        }
+        return res;
       }).catch(function (e) { return { ok: false, msg: e.message }; });
     }
-    // Fallback to localStorage
-    var users = getUsers();
-    var exists = users.some(function (u) { return u.account.toLowerCase() === account.toLowerCase(); });
-    if (exists) return { ok: false, msg: 'Account already registered' };
-    var user = { uid: genUid(users), account: account, password: password, createdAt: new Date().toISOString() };
-    if (referralCode) {
-      var code = trim(referralCode);
-      var inviter = null;
-      for (var j = 0; j < users.length; j++) {
-        if (users[j].uid === code) { inviter = users[j]; break; }
-      }
-      if (!inviter) return { ok: false, msg: 'Invalid referral code' };
-      user.referredBy = inviter.uid;
-      if (!inviter.invited) inviter.invited = [];
-      inviter.invited.push(user.uid);
-    }
-    users.push(user);
-    saveUsers(users);
-    getBalances(user.uid);
-    if (user.referredBy) {
-      addBalance(user.uid, 'USDT', 5);
-      try { addTxn({ uid: user.uid, account: user.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral bonus' }); } catch (e) {}
-      addBalance(inviter.uid, 'USDT', 5);
-      try { addTxn({ uid: inviter.uid, account: inviter.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral reward' }); } catch (e) {}
-    }
-    return { ok: true, user: user };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function login(account, password) {
     account = trim(account);
     if (!account || !password) return { ok: false, msg: 'Please enter account and password' };
-    // Use DB.login if available
-    if (typeof DB !== 'undefined' && DB.login) {
+    if (typeof DB !== 'undefined' && DB.login && dbActive()) {
+      var lang = getLang();
       return DB.login(account, password).then(function (res) {
         if (res.ok && res.user) {
-          var user = res.user;
-          try { localStorage.setItem('trustLoggedIn', '1'); localStorage.setItem('trustUserId', user.uid); } catch (e) {}
-          return { ok: true, user: user };
+          return _activateSession(res.user.uid, false, !!res.user.is_admin, lang).then(function () {
+            try { if (DB.getUserLanguage) { var dl = DB.getUserLanguage(res.user.uid); if (dl && LANGS[dl]) _lang = dl; } } catch (e) {}
+            return { ok: true, user: res.user };
+          });
         }
         return res;
       }).catch(function (e) { return { ok: false, msg: e.message }; });
     }
-    // Fallback to localStorage
-    var users = getUsers();
-    var user = null;
-    for (var i = 0; i < users.length; i++) {
-      if (users[i].account.toLowerCase() === account.toLowerCase()) { user = users[i]; break; }
-    }
-    if (!user) return { ok: false, msg: 'Account not found' };
-    if (user.password !== password) return { ok: false, msg: 'Incorrect password' };
-    if (user.status === 'inactive') return { ok: false, msg: 'Account has been deactivated' };
-    try {
-      localStorage.setItem('trustLoggedIn', '1');
-      localStorage.setItem('trustUserId', user.uid);
-    } catch (e) {}
-    return { ok: true, user: user };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function walletLogin(address) {
     if (!address) return { ok: false, msg: 'Invalid wallet address' };
-    var users = getUsers();
-    var user = null;
-    for (var i = 0; i < users.length; i++) {
-      if (users[i].account && users[i].account.toLowerCase() === address.toLowerCase()) { user = users[i]; break; }
+    if (dbActive()) {
+      var existing = null;
+      try {
+        DB.usersList().forEach(function (u) {
+          if (u.account && String(u.account).toLowerCase() === String(address).toLowerCase()) existing = u;
+        });
+      } catch (e) {}
+      var p = null;
+      if (existing) {
+        p = Promise.resolve(existing);
+      } else {
+        var createdAt = new Date().toISOString();
+        var used = {};
+        try { DB.usersList().forEach(function (u) { used[String(u.uid)] = true; }); } catch (e) {}
+        var wuid = parseInt(DB._genUid(used), 10);
+        p = DB.createUser(address, null, { uid: wuid, created_at: createdAt, is_guest: true });
+      }
+      return p.then(function (user) {
+        return _activateSession(user.uid, !!user.is_guest, false, getLang()).then(function () {
+          return { ok: true, user: user };
+        });
+      }).catch(function (e) { return { ok: false, msg: e.message }; });
     }
-    if (!user) {
-      user = { uid: genUid(users), account: address, password: '', isWallet: true, createdAt: new Date().toISOString() };
-      users.push(user);
-      saveUsers(users);
-    }
-    try {
-      localStorage.setItem('trustLoggedIn', '1');
-      localStorage.setItem('trustUserId', user.uid);
-    } catch (e) {}
-    return { ok: true, user: user };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function logout() {
-    try {
-      localStorage.removeItem('trustLoggedIn');
-      localStorage.removeItem('trustUserId');
-      localStorage.removeItem(WALLET_KEY);
-      sessionStorage.removeItem('trustAdminAuthed');
-    } catch (e) {}
+    _clearSession();
     closeWalletConnect();
   }
 
@@ -1327,7 +1579,7 @@
     var lock = document.getElementById('adminLock');
     if (!lock) return;
     try {
-      if (sessionStorage.getItem('trustAdminAuthed') === '1') return;
+      if (_session && _session.admin) return;
       if (isCurrentUserAdmin()) return;
       lock.style.display = 'flex';
     } catch (e) {}
@@ -1340,7 +1592,19 @@
     var cfg = getConfig();
     var pass = input ? input.value : '';
     if (pass === (cfg.adminPassword || 'admin123')) {
-      try { sessionStorage.setItem('trustAdminAuthed', '1'); } catch (e) {}
+      var grant = function (tok) {
+        _session = _session || { token: tok, uid: null, is_guest: false, admin: false, language: null };
+        _session.admin = true;
+        if (tok) DB.updateSession(tok, { admin: true }).catch(function () {});
+      };
+      var tok = getToken();
+      if (tok) {
+        grant(tok);
+      } else {
+        tok = rndToken();
+        setToken(tok);
+        DB.createSession(tok, null, { language: _lang || langLabel('en') }).then(function () { grant(tok); }).catch(function () { grant(tok); });
+      }
       if (lock) lock.style.display = 'none';
       if (err) err.textContent = '';
     } else {
@@ -1355,9 +1619,6 @@
 
   var COIN_KEYS = ['USDT', 'BTC', 'ETH', 'XRP', 'LTC', 'USDC', 'TON', 'DOGE', 'BNB', 'ADA', 'SOL', 'TRX', 'UNI', 'AVAX', 'DOT', 'LINK', 'BCH', 'BSV', 'IOTA', 'ETC', 'TUSD', 'XAU', 'XAG', 'XPD', 'XPT'];
 
-  function getBalanceMap() { try { return JSON.parse(localStorage.getItem(BAL_KEY)) || {}; } catch (e) { return {}; } }
-  function saveBalanceMap(m) { try { localStorage.setItem(BAL_KEY, JSON.stringify(m)); } catch (e) {} dbSync(BAL_KEY); }
-
   function getBalances(uid) {
     if (!uid) return {};
     if (dbActive()) {
@@ -1367,12 +1628,8 @@
       COIN_KEYS.forEach(function (k) { b[k] = parseFloat(m[k]) || 0; });
       return b;
     }
-    var m = getBalanceMap();
-    if (m[uid]) return m[uid];
     var b = {};
     COIN_KEYS.forEach(function (k) { b[k] = 0; });
-    m[uid] = b;
-    saveBalanceMap(m);
     return b;
   }
 
@@ -1387,11 +1644,7 @@
       try { DB.setBalance(uid, coin, amt).catch(function () {}); } catch (e) {}
       return amt;
     }
-    var m = getBalanceMap();
-    if (!m[uid]) m[uid] = {};
-    m[uid][coin] = parseFloat(amt) || 0;
-    saveBalanceMap(m);
-    return m[uid][coin];
+    return amt;
   }
 
   function addBalance(uid, coin, delta) {
@@ -1402,16 +1655,16 @@
       try { DB.addBalance(uid, coin, delta).catch(function () {}); } catch (e) {}
       return next;
     }
-    return setBalance(uid, coin, getBalance(uid, coin) + delta);
+    return Math.max(0, getBalance(uid, coin) + delta);
   }
 
   function getTxns() {
     if (dbActive()) {
       try { return (DB.getTransactions() || []).map(dbTxnToApp); } catch (e) {}
     }
-    try { return JSON.parse(localStorage.getItem(TXN_KEY)) || []; } catch (e) { return []; }
+    return [];
   }
-  function saveTxns(list) { try { localStorage.setItem(TXN_KEY, JSON.stringify(list)); } catch (e) {} dbSync(TXN_KEY); }
+  function saveTxns(list) { return list; }
 
   function genId(prefix) {
     return prefix + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1000);
@@ -1448,9 +1701,6 @@
       }).catch(function () {});
       return t;
     }
-    var list = getTxns();
-    list.unshift(t);
-    saveTxns(list);
     return t;
   }
 
@@ -1459,13 +1709,7 @@
       DB.setTransactionStatus(id, status).catch(function () {});
       return { id: id, status: status };
     }
-    var list = getTxns();
-    var found = null;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].id === id) { list[i].status = status; found = list[i]; break; }
-    }
-    if (found) saveTxns(list);
-    return found;
+    return { id: id, status: status };
   }
 
   var LOAN_KEY = 'trustLoans';
@@ -1474,9 +1718,9 @@
     if (dbActive()) {
       try { return (DB.getLoans() || []).map(dbLoanToApp); } catch (e) {}
     }
-    try { return JSON.parse(localStorage.getItem(LOAN_KEY)) || []; } catch (e) { return []; }
+    return [];
   }
-  function saveLoans(list) { try { localStorage.setItem(LOAN_KEY, JSON.stringify(list)); } catch (e) {} dbSync(LOAN_KEY); }
+  function saveLoans(list) { return list; }
 
   function getLoansForUser(uid) {
     if (!uid) return [];
@@ -1501,9 +1745,6 @@
       }).catch(function () {});
       return l;
     }
-    var list = getLoans();
-    list.unshift(l);
-    saveLoans(list);
     return l;
   }
 
@@ -1512,26 +1753,26 @@
       DB.updateLoanStatus(id, status).catch(function () {});
       return { id: id, status: status };
     }
-    var list = getLoans();
-    var found = null;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].id === id) { list[i].status = status; found = list[i]; break; }
-    }
-    if (found) saveLoans(list);
-    return found;
+    return { id: id, status: status };
   }
 
-  function getTrades() { try { return JSON.parse(localStorage.getItem(TRADE_KEY)) || []; } catch (e) { return []; } }
-  function saveTrades(list) { try { localStorage.setItem(TRADE_KEY, JSON.stringify(list)); } catch (e) {} dbSync(TRADE_KEY); }
+  function getTrades() {
+    if (dbActive()) {
+      try { return (DB.getTrades() || []).map(dbTradeToApp); } catch (e) {}
+    }
+    return [];
+  }
+  function saveTrades(list) { return list; }
 
   function addTrade(obj) {
     var t = {
       id: genId('TRD'),
+      uid: obj.uid || (typeof obj.user !== 'undefined' && /^\d+$/.test(obj.user) ? obj.user : null),
       pair: obj.pair || 'BTC/USDT',
       side: obj.side || 'up',
       amount: parseFloat(obj.amount) || 0,
       price: parseFloat(obj.price) || 0,
-      user: obj.user || 'unknown',
+      user: obj.user || obj.uid || '',
       createdAt: new Date().toISOString(),
       status: obj.status || 'open',
       duration: parseInt(obj.duration, 10) || 0,
@@ -1539,34 +1780,59 @@
       settledAt: obj.settledAt || null,
       profit: parseFloat(obj.profit) || 0
     };
-    var list = getTrades();
-    list.unshift(t);
-    if (list.length > 200) list.length = 200;
-    saveTrades(list);
+    if (dbActive()) {
+      DB.addTrade({
+        uid: t.uid,
+        account: t.user || null,
+        pair: t.pair,
+        side: t.side,
+        amount: t.amount,
+        price: t.price,
+        status: t.status,
+        duration: t.duration,
+        sellPrice: t.sellPrice,
+        settledAt: t.settledAt,
+        profit: t.profit
+      }).then(function (row) { if (row && row.id) t.id = String(row.id); }).catch(function () {});
+    }
     return t;
   }
 
   function updateTrade(id, patch) {
+    var t = null;
     var list = getTrades();
     for (var i = 0; i < list.length; i++) {
       if (list[i].id === id) {
         for (var k in patch) list[i][k] = patch[k];
-        saveTrades(list);
-        return list[i];
+        t = list[i];
+        break;
       }
     }
-    return null;
+    if (t && dbActive()) {
+      var p = {};
+      if (patch.status !== undefined) p.status = patch.status;
+      if (patch.sellPrice !== undefined) p.sell_price = patch.sellPrice;
+      if (patch.settledAt !== undefined) p.settled_at = patch.settledAt;
+      if (patch.profit !== undefined) p.profit = patch.profit;
+      DB.updateTrade(String(id), p).catch(function () {});
+    }
+    return t;
   }
 
   var AI_KEY = 'trustAIOrders';
-  function getAIOrders() { try { return JSON.parse(localStorage.getItem(AI_KEY)) || []; } catch (e) { return []; } }
-  function saveAIOrders(list) { try { localStorage.setItem(AI_KEY, JSON.stringify(list)); } catch (e) {} dbSync(AI_KEY); }
+  function getAIOrders() {
+    if (dbActive()) {
+      try { return (DB.getAIOrders() || []).map(dbAiOrderToApp); } catch (e) {}
+    }
+    return [];
+  }
+  function saveAIOrders(list) { return list; }
 
   function addAIOrder(obj) {
     var o = {
       id: genId('AI'),
       uid: obj.uid || '',
-      account: obj.account || 'unknown',
+      account: obj.account || obj.uid || 'unknown',
       productId: obj.productId || 1,
       product: obj.product || 'AI Quant',
       period: parseInt(obj.period, 10) || 7,
@@ -1582,22 +1848,49 @@
       createdAt: new Date().toISOString(),
       schedules: obj.schedules || []
     };
-    var list = getAIOrders();
-    list.unshift(o);
-    saveAIOrders(list);
+    if (dbActive()) {
+      DB.addAIOrder({
+        uid: o.uid,
+        account: o.account || null,
+        product: o.product,
+        period: o.period,
+        rate_min: o.rateMin,
+        rate_max: o.rateMax,
+        amount: o.amount,
+        principal: o.principal,
+        profit: o.profit,
+        settled_days: o.settledDays,
+        status: o.status,
+        start_at: o.startAt,
+        end_at: o.endAt,
+        schedules: o.schedules
+      }).then(function (row) { if (row && row.id) o.id = String(row.id); }).catch(function () {});
+    }
     return o;
   }
 
   function updateAIOrder(id, patch) {
+    var o = null;
     var list = getAIOrders();
     for (var i = 0; i < list.length; i++) {
       if (list[i].id === id) {
         for (var k in patch) list[i][k] = patch[k];
-        saveAIOrders(list);
-        return list[i];
+        o = list[i];
+        break;
       }
     }
-    return null;
+    if (o && dbActive()) {
+      DB.updateAIOrder(String(id), {
+        status: o.status,
+        start_at: o.startAt,
+        end_at: o.endAt,
+        settled_days: o.settledDays,
+        profit: o.profit,
+        principal: o.principal,
+        schedules: o.schedules
+      }).catch(function () {});
+    }
+    return o;
   }
 
   function buildAISchedules(period, intervalHours, startIso) {
@@ -1663,61 +1956,59 @@
           if (settled > 0) changed = true;
         }
       }
-      if (changed) saveAIOrders(list);
+      if (changed && dbActive()) {
+        // Persist any mutated orders back to Supabase.
+        for (var ai = 0; ai < list.length; ai++) {
+          var oo = list[ai];
+          if (oo.status === 'running' || oo.status === 'completed') {
+            DB.updateAIOrder(String(oo.id), {
+              status: oo.status, start_at: oo.startAt, end_at: oo.endAt,
+              settled_days: oo.settledDays, profit: oo.profit, principal: oo.principal, schedules: oo.schedules
+            }).catch(function () {});
+          }
+        }
+      }
       return changed;
     } catch (e) {
       return false;
     }
   }
 
-  function getChatMap() { try { return JSON.parse(localStorage.getItem(CHAT_KEY)) || {}; } catch (e) { return {}; } }
-  function saveChatMap(m) { try { localStorage.setItem(CHAT_KEY, JSON.stringify(m)); } catch (e) {} dbSync(CHAT_KEY); }
-
-  var MS_2DAYS = 2 * 24 * 60 * 60 * 1000;
-  var GREETED_KEY = 'trustChatGreeted';
   var SUPPORT_GREETING = 'Hello! Welcome to Trust Wallet Support. How can I help you today?';
-
-  function pruneChatMap(m) {
-    var cutoff = Date.now() - MS_2DAYS;
-    var changed = false;
-    for (var u in m) {
-      if (!Object.prototype.hasOwnProperty.call(m, u)) continue;
-      var list = m[u];
-      if (!Array.isArray(list)) continue;
-      if (!list.length) { delete m[u]; continue; }
-      var kept = list.filter(function (msg) {
-        return !msg || !msg.at || new Date(msg.at).getTime() >= cutoff;
-      });
-      if (kept.length !== list.length) changed = true;
-      m[u] = kept;
-      if (!kept.length) delete m[u];
-    }
-    return changed;
-  }
-
-  function getGreeted() { try { return JSON.parse(localStorage.getItem(GREETED_KEY)) || {}; } catch (e) { return {}; } }
-  function saveGreeted(g) { try { localStorage.setItem(GREETED_KEY, JSON.stringify(g)); } catch (e) {} dbSync(GREETED_KEY); }
 
   function ensureSupportGreeting(uid) {
     if (!uid) return null;
-    var g = getGreeted();
-    if (g[uid]) return null;
-    g[uid] = 1;
-    saveGreeted(g);
+    if (dbActive()) {
+      if (DB.getUserGreeted(uid)) return null;
+      DB.setUserGreeted(uid).catch(function () {});
+    }
     return sendChatMsg(uid, 'admin', SUPPORT_GREETING);
   }
 
   function getChat(uid) {
     if (!uid) return [];
-    var m = getChatMap();
-    if (pruneChatMap(m)) saveChatMap(m);
-    return (m[uid] || []).filter(function (msg) { return msg && !msg.deleted; });
+    if (dbActive()) {
+      try {
+        return (DB.getChat(uid) || []).filter(function (m) { return !m.deleted; }).map(dbChatToApp);
+      } catch (e) {}
+      return [];
+    }
+    return [];
+  }
+
+  function _chatLocateKey(list, key) {
+    if (String(key).indexOf('idx:') === 0) {
+      var idx = parseInt(String(key).slice(4), 10);
+      return (idx >= 0 && idx < list.length) ? list[idx] : null;
+    }
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].mid === key) return list[i];
+    }
+    return null;
   }
 
   function sendChatMsg(uid, from, text, attachments) {
     if (!uid) return null;
-    var m = getChatMap();
-    if (!m[uid]) m[uid] = [];
     var msg = {
       mid: genId('CM'),
       from: from === 'admin' ? 'admin' : 'user',
@@ -1726,75 +2017,70 @@
       seen: from === 'admin'
     };
     if (attachments && attachments.length) msg.attachments = attachments.slice(0, 6);
-    m[uid].push(msg);
-    saveChatMap(m);
+    if (dbActive()) {
+      DB.sendChatMessage(uid, msg.from, msg.text).then(function (row) {
+        if (row && row.id) msg.mid = String(row.id);
+      }).catch(function () {});
+    }
     return msg;
   }
 
   function updateChatMsg(uid, key, text) {
     if (!uid) return null;
-    var m = getChatMap();
-    var list = m[uid] || [];
-    var idx = -1;
-    if (String(key).indexOf('idx:') === 0) {
-      idx = parseInt(String(key).slice(4), 10);
-    } else {
-      for (var i = 0; i < list.length; i++) {
-        if (list[i].mid === key) { idx = i; break; }
-      }
-    }
-    if (idx < 0 || idx >= list.length) return null;
-    list[idx].text = String(text == null ? '' : text).slice(0, 2000);
-    list[idx].edited = true;
-    list[idx].editedAt = new Date().toISOString();
-    saveChatMap(m);
-    return list[idx];
+    var list = getChat(uid);
+    var m = _chatLocateKey(list, key);
+    if (!m) return null;
+    m.text = String(text == null ? '' : text).slice(0, 2000);
+    m.edited = true;
+    m.editedAt = new Date().toISOString();
+    if (dbActive()) DB.editChatMessage(uid, m.mid, m.text).catch(function () {});
+    return m;
   }
 
-  // soft-delete a message (tombstone survives cross-device merges so it is
-  // never resurrected by a device that has not pulled the delete yet)
+  // soft-delete a message so it never resurfaces on another device
   function deleteChatMsg(uid, key) {
     if (!uid) return { ok: false, msg: 'No uid' };
-    var m = getChatMap();
-    var list = m[uid] || [];
-    var idx = -1;
-    if (String(key).indexOf('idx:') === 0) {
-      idx = parseInt(String(key).slice(4), 10);
-    } else {
-      for (var i = 0; i < list.length; i++) {
-        if (list[i].mid === key) { idx = i; break; }
-      }
-    }
-    if (idx < 0 || idx >= list.length) return { ok: false, msg: 'Message not found' };
-    list[idx].deleted = true;
-    list[idx].deletedAt = new Date().toISOString();
-    saveChatMap(m);
+    var list = getChat(uid);
+    var m = _chatLocateKey(list, key);
+    if (!m) return { ok: false, msg: 'Message not found' };
+    m.deleted = true;
+    m.deletedAt = new Date().toISOString();
+    if (dbActive()) DB.deleteChatMessage(uid, m.mid).catch(function () {});
     return { ok: true };
   }
 
-  // mark a user's chat as seen by admin (persist + broadcast only when changed)
+  // mark a user's chat as seen by admin
   function markChatSeen(uid) {
     if (!uid) return false;
-    var m = getChatMap();
-    var list = m[uid];
-    if (!Array.isArray(list) || !list.length) return false;
+    var list = getChat(uid);
     var touched = false;
     list.forEach(function (msg) {
       if (msg && msg.from !== 'admin' && !msg.seen) { msg.seen = true; touched = true; }
     });
-    if (touched) saveChatMap(m);
+    if (touched && dbActive()) DB.markChatRead(uid).catch(function () {});
     return touched;
   }
 
   function chatUsers() {
-    var m = getChatMap();
-    if (pruneChatMap(m)) saveChatMap(m);
-    return Object.keys(m).filter(function (u) {
-      return m[u] && m[u].some(function (msg) { return msg && !msg.deleted; });
-    });
+    if (dbActive()) {
+      try {
+        return (DB.getChatUsers() || []).filter(function (u) {
+          return (getChat(u) || []).some(function (msg) { return msg && !msg.deleted; });
+        });
+      } catch (e) {}
+      return [];
+    }
+    return [];
   }
 
   function accountByUid(uid) {
+    if (uid != null && dbActive()) {
+      try {
+        var raw = DB.getUserStr(uid);
+        if (raw) return dbUserToApp(raw);
+      } catch (e) {}
+      return null;
+    }
     var users = getUsers();
     for (var i = 0; i < users.length; i++) {
       if (String(users[i].uid) === String(uid)) return users[i];
@@ -1911,47 +2197,12 @@
       }).catch(function (e) {
         try { if (window.toast) toast('error', 'Failed to delete: ' + e.message); } catch (e2) {}
       });
-      if (getUserId() === uid) logout();
+      if (isLoggedIn() && getUserId() === uid) logout();
       return { ok: true, account: user.account };
     }
 
-    var users = getUsers();
-    var marker = { uid: uid, account: user.account, deleted: true, deletedAt: new Date().toISOString() };
-    for (var mk in user) marker[mk] = user[mk];
-    users = users.filter(function (u) { return u.uid !== uid; });
-    users.push(marker);
-    users.forEach(function (u) {
-      if (u.invited) u.invited = u.invited.filter(function (id) { return id !== uid; });
-      if (u.referredBy === uid) delete u.referredBy;
-    });
-    saveUsers(users);
-
-    var bm = getBalanceMap();
-    if (bm[uid]) { delete bm[uid]; saveBalanceMap(bm); }
-
-    saveTxns(getTxns().filter(function (t) { return t.uid !== uid; }));
-    saveLoans(getLoans().filter(function (l) { return l.uid !== uid; }));
-    saveTrades(getTrades().filter(function (t) { return t.uid !== uid; }));
-    saveAIOrders(getAIOrders().filter(function (a) { return a.uid !== uid; }));
-
-    var cm = getChatMap();
-    if (cm[uid]) { delete cm[uid]; saveChatMap(cm); }
-    var gm = getGreeted();
-    if (gm[uid]) { delete gm[uid]; saveGreeted(gm); }
-
-    var vm = getVerifications();
-    if (vm[uid]) { delete vm[uid]; saveVerifications(vm); }
-
-    var pm = getProfitMap();
-    if (pm[uid]) {
-      delete pm[uid];
-      try { localStorage.setItem(PROFIT_KEY, JSON.stringify(pm)); } catch (e) {}
-      dbSync(PROFIT_KEY);
-    }
-
-    // do not let a deleted account keep a live session
-    if (getUserId() === uid) logout();
-
+    // no database configured: nothing stored locally, nothing to delete
+    if (isLoggedIn() && getUserId() === uid) logout();
     return { ok: true, account: user.account };
   }
 
@@ -1961,27 +2212,30 @@
 
   var PROFIT_KEY = 'trustProfitMode';
 
-  function getProfitMap() {
-    try { return JSON.parse(localStorage.getItem(PROFIT_KEY)) || {}; } catch (e) { return {}; }
-  }
-
   function getProfitMode(uid) {
-    var m = getProfitMap();
-    return !!m[uid];
+    if (!uid) return false;
+    if (dbActive()) {
+      try { return DB.getUserProfitMode(uid); } catch (e) {}
+      return false;
+    }
+    return false;
   }
 
   function setProfitMode(uid, on) {
     if (!uid) return { ok: false, msg: 'User is required' };
-    var m = getProfitMap();
-    if (on) m[uid] = true; else delete m[uid];
-    try { localStorage.setItem(PROFIT_KEY, JSON.stringify(m)); } catch (e) { return { ok: false, msg: 'Could not save' }; }
-    dbSync(PROFIT_KEY);
-    return { ok: true };
+    if (dbActive()) {
+      DB.setUserProfitMode(uid, !!on).catch(function () {});
+      return { ok: true };
+    }
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function getCoinAddresses() {
+    var out = {};
+    Object.keys(DEFAULT_COIN_ADDRESSES).forEach(function (coin) {
+      out[coin] = { net: DEFAULT_COIN_ADDRESSES[coin].net, addr: DEFAULT_COIN_ADDRESSES[coin].addr };
+    });
     if (dbActive()) {
-      var out = {};
       try {
         var m = DB.getCoinAddresses() || {};
         Object.keys(m).forEach(function (coin) {
@@ -1989,17 +2243,6 @@
         });
         return out;
       } catch (e) {}
-    }
-    var saved = null;
-    try { saved = JSON.parse(localStorage.getItem(COIN_ADDR_KEY) || 'null'); } catch (e) { saved = null; }
-    var out = {};
-    Object.keys(DEFAULT_COIN_ADDRESSES).forEach(function (coin) {
-      out[coin] = { net: DEFAULT_COIN_ADDRESSES[coin].net, addr: DEFAULT_COIN_ADDRESSES[coin].addr };
-    });
-    if (saved && typeof saved === 'object') {
-      Object.keys(saved).forEach(function (coin) {
-        out[coin] = { net: String(saved[coin].net || ''), addr: String(saved[coin].addr || '') };
-      });
     }
     return out;
   }
@@ -2016,11 +2259,7 @@
       });
       return { ok: true };
     }
-    var m = getCoinAddresses();
-    m[coin] = { net: net.slice(0, 40), addr: addr.slice(0, 500) };
-    try { localStorage.setItem(COIN_ADDR_KEY, JSON.stringify(m)); } catch (e) { return { ok: false, msg: 'Could not save (storage full?)' }; }
-    dbSync(COIN_ADDR_KEY);
-    return { ok: true };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function removeCoinAddress(coin) {
@@ -2028,11 +2267,7 @@
       DB.deleteCoinAddress(coin).catch(function () {});
       return { ok: true };
     }
-    var m = getCoinAddresses();
-    delete m[coin];
-    try { localStorage.setItem(COIN_ADDR_KEY, JSON.stringify(m)); } catch (e) {}
-    dbSync(COIN_ADDR_KEY);
-    return { ok: true };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function getVerifications() {
@@ -2043,11 +2278,11 @@
         return map;
       } catch (e) {}
     }
-    try { return JSON.parse(localStorage.getItem(VER_KEY)) || {}; } catch (e) { return {}; }
+    return {};
   }
 
   function saveVerifications(m) {
-    try { localStorage.setItem(VER_KEY, JSON.stringify(m)); dbSync(VER_KEY); return true; } catch (e) { return false; }
+    return false;
   }
 
   function getVerification(uid) {
@@ -2075,35 +2310,32 @@
       });
       return { ok: true };
     }
-    var m = getVerifications();
-    if (m[uid] && m[uid].status === 'pending') return { ok: false, msg: 'Your verification is already under review' };
-    m[uid] = {
-      name: String(data.name || '').slice(0, 120),
-      email: String(data.email || '').slice(0, 120),
-      idNumber: String(data.idNumber || '').slice(0, 80),
-      phone: String(data.phone || '').slice(0, 40),
-      idFront: String(data.idFront || ''),
-      idBack: String(data.idBack || ''),
-      status: 'pending',
-      submittedAt: new Date().toISOString(),
-      reviewedAt: null,
-      note: ''
-    };
-    if (!saveVerifications(m)) return { ok: false, msg: 'Storage full. Unable to save verification.' };
-    return { ok: true };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function submitAdvancedVerification(uid, data) {    if (!uid) return { ok: false, msg: 'Please login first' };
     if (!data || !data.advanced) return { ok: false, msg: 'Please upload your handheld ID photo' };
-    var m = getVerifications();
-    if (!m[uid]) m[uid] = { name: '', email: '', idNumber: '', phone: '', submittedAt: new Date().toISOString(), reviewedAt: null, note: '' };
-    if (m[uid].advancedStatus === 'pending') return { ok: false, msg: 'Your advanced verification is already under review' };
-    m[uid].advanced = String(data.advanced || '');
-    m[uid].advancedStatus = 'pending';
-    m[uid].advancedSubmittedAt = new Date().toISOString();
-    m[uid].advancedReviewedAt = null;
-    m[uid].advancedNote = '';
-    if (!saveVerifications(m)) return { ok: false, msg: 'Storage full. Please use a smaller photo or clear browser data.' };
+    if (!dbActive()) return { ok: false, msg: 'Database not configured' };
+    var v = getVerification(uid);
+    if (v && v.advancedStatus === 'pending') return { ok: false, msg: 'Your advanced verification is already under review' };
+    var fields = {
+      advanced: String(data.advanced || ''),
+      advanced_status: 'pending',
+      advanced_submitted_at: new Date().toISOString(),
+      advanced_reviewed_at: null,
+      advanced_note: ''
+    };
+    if (v) {
+      DB.updateVerificationAdvanced(uid, fields).catch(function (e) {
+        try { if (window.toast) toast('error', 'Save failed: ' + e.message); } catch (e2) {}
+      });
+    } else {
+      DB.submitVerification(uid, Object.assign({
+        name: '', email: '', idNumber: '', phone: '', id_front: '', id_back: ''
+      }, fields)).catch(function (e) {
+        try { if (window.toast) toast('error', 'Save failed: ' + e.message); } catch (e2) {}
+      });
+    }
     return { ok: true };
   }
 
@@ -2120,13 +2352,15 @@
   }
 
   function setAdvancedVerificationStatus(uid, status, note) {
-    var m = getVerifications();
-    if (!m[uid] || !m[uid].advanced) return { ok: false, msg: 'No advanced verification submission found' };
+    if (!dbActive()) return { ok: false, msg: 'Database not configured' };
+    var v = getVerification(uid);
+    if (!v || !v.advanced) return { ok: false, msg: 'No advanced verification submission found' };
     if (status !== 'approved' && status !== 'rejected') return { ok: false, msg: 'Invalid status' };
-    m[uid].advancedStatus = status;
-    m[uid].advancedNote = String(note || '').slice(0, 300);
-    m[uid].advancedReviewedAt = new Date().toISOString();
-    saveVerifications(m);
+    DB.updateVerificationAdvanced(uid, {
+      advanced_status: status,
+      advanced_note: String(note || '').slice(0, 300),
+      advanced_reviewed_at: new Date().toISOString()
+    }).catch(function () {});
     return { ok: true };
   }
 
@@ -2137,14 +2371,7 @@
       DB.updateVerificationStatus(uid, status, { rejection_reason: String(note || '').slice(0, 300) }).catch(function () {});
       return { ok: true };
     }
-    var m = getVerifications();
-    if (!m[uid]) return { ok: false, msg: 'No verification submission found' };
-    if (status !== 'approved' && status !== 'rejected') return { ok: false, msg: 'Invalid status' };
-    m[uid].status = status;
-    m[uid].note = String(note || '').slice(0, 300);
-    m[uid].reviewedAt = new Date().toISOString();
-    saveVerifications(m);
-    return { ok: true };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function adminApproveKyc(uid) {
@@ -2159,24 +2386,7 @@
       }
       return { ok: true };
     }
-    var m = getVerifications();
-    if (!m[uid]) {
-      m[uid] = {
-        name: '', email: '', idNumber: '', phone: '',
-        idFront: '', idBack: '', status: 'approved',
-        submittedAt: new Date().toISOString(),
-        reviewedAt: new Date().toISOString(),
-        note: 'Admin-verified'
-      };
-      saveVerifications(m);
-      return { ok: true };
-    }
-    if (m[uid].status === 'approved') return { ok: false, msg: 'Already approved' };
-    m[uid].status = 'approved';
-    m[uid].note = 'Approved by admin';
-    m[uid].reviewedAt = new Date().toISOString();
-    saveVerifications(m);
-    return { ok: true };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function changePassword(uid, currentPassword, newPassword) {
@@ -2194,17 +2404,7 @@
       u.password_hash = nh; u.password = nh;
       return { ok: true, user: u };
     }
-    var users = getUsers();
-    var user = null;
-    for (var i = 0; i < users.length; i++) {
-      if (users[i].uid === uid) { user = users[i]; break; }
-    }
-    if (!user) return { ok: false, msg: 'Account not found' };
-    if (user.password !== currentPassword) return { ok: false, msg: 'Current password is incorrect' };
-    if (String(newPassword).length < 6) return { ok: false, msg: 'New password must be at least 6 characters' };
-    user.password = newPassword;
-    saveUsers(users);
-    return { ok: true, user: user };
+    return { ok: false, msg: 'Database not configured' };
   }
 
   function changeAdminPassword(currentPassword, newPassword) {
@@ -2222,15 +2422,20 @@
     var pub = ['login.html', 'register.html', 'service.html'];
     if (pub.indexOf(f) !== -1) return;
     if (f.indexOf('admin') === 0) return;
-    if (!isLoggedIn()) {
-      location.replace('login.html?r=' + encodeURIComponent(f + location.search));
-      return;
-    }
-    var u = accountByUid(getUserId());
-    if (u && u.status === 'inactive') {
-      logout();
-      location.replace('login.html?r=' + encodeURIComponent(f + location.search) + '&blocked=1');
-    }
+    // Session restore is async (reads the DB); wait for it before deciding.
+    restoreSession().then(function () {
+      if (!isLoggedIn()) {
+        location.replace('login.html?r=' + encodeURIComponent(f + location.search));
+        return;
+      }
+      var u = accountByUid(getUserId());
+      if (u && u.status === 'inactive') {
+        logout();
+        location.replace('login.html?r=' + encodeURIComponent(f + location.search) + '&blocked=1');
+        return;
+      }
+      try { updateMenuUser(); } catch (e) {}
+    });
   })();
 
   function marketToTradeQuery(d, tab) {
@@ -2239,6 +2444,17 @@
 
   function watchStorage(keys, callback, debounceMs) {
     var timers = {};
+    var map = {
+      users: ['trustUsers'],
+      user_balances: ['trustBalances'],
+      transactions: ['trustTxns'],
+      loans: ['trustLoans'],
+      trades: ['trustTrades'],
+      ai_orders: ['trustAIOrders'],
+      chat_messages: ['trustChat'],
+      verifications: ['trustVerifications'],
+      coin_addresses: ['trustCoinAddresses']
+    };
     function run(key) {
       if (!callback) return;
       if (timers[key]) clearTimeout(timers[key]);
@@ -2246,14 +2462,14 @@
         try { callback(key); } catch (e) {}
       }, debounceMs || 150);
     }
-    window.addEventListener('storage', function (ev) {
-      if (!keys || keys.length === 0) { run(''); return; }
-      if (items(keys).indexOf(ev.key) !== -1) run(ev.key);
-    });
-    function items(arr) {
-      var map = {};
-      arr.forEach(function (k) { map[k] = 1; });
-      return Object.keys(map);
+    // Data now lives in Supabase; react to its realtime events instead of
+    // localStorage 'storage' events.
+    if (typeof window !== 'undefined') {
+      Object.keys(map).forEach(function (tbl) {
+        var wants = map[tbl].filter(function (k) { return !keys || keys.length === 0 || (keys || []).indexOf(k) !== -1; });
+        if (!wants.length) return;
+        window.addEventListener('trustsync:' + tbl, function () { run(tbl); });
+      });
     }
     watchStorage.timers = timers;
   }
@@ -2542,6 +2758,7 @@
     setLang: setLang,
     toggleLang: toggleLang,
     updateMenuUser: updateMenuUser,
+    ensureGuest: ensureGuest,
     isLoggedIn: isLoggedIn,
     register: register,
     login: login,

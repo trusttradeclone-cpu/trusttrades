@@ -69,18 +69,9 @@ var TrustDB = (function () {
       return this._initPromise || Promise.resolve(false);
     },
 
-    // Clean up old blob localStorage on first load
-    _cleanupOldBlobs: function () {
-      var oldKeys = ['trustUsers', 'trustBalances', 'trustVerifications', 'trustLoans', 'trustTxns', 'trustTrades', 'trustAIOrders', 'trustChat', 'trustChatGreeted', 'trustAddresses', 'trustConfig', 'trustProfitMode', 'trustDbLastSync'];
-      oldKeys.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
-      // mark cleaned
-      try { localStorage.setItem('trustBlobsCleaned', '1'); } catch (e) {}
-    },
-
     // Bootstrap: load initial data
     _bootstrap: function () {
       var self = this;
-      if (typeof localStorage !== 'undefined' && !localStorage.getItem('trustBlobsCleaned')) self._cleanupOldBlobs();
       var tables = [
         { t: 'users', k: 'uid' },
         { t: 'user_balances', k: 'uid' },
@@ -384,6 +375,10 @@ var TrustDB = (function () {
       var patch = Object.assign({ status: status, reviewed_at: new Date().toISOString() }, extra || {});
       return this.q('verifications?uid=eq.' + uid, { method: 'PATCH', body: patch });
     },
+    updateVerificationAdvanced: function (uid, fields) {
+      var patch = Object.assign({}, fields || {});
+      return this.q('verifications?uid=eq.' + uid, { method: 'PATCH', body: patch });
+    },
 
     // Loans
     getLoans: function () { return this._cache.loans.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },
@@ -421,8 +416,9 @@ var TrustDB = (function () {
     // Chat
     getChat: function (uid) { return (this._cache.chatMessages[uid] || []).slice().sort(function (a, b) { return (a.created_at || 0) - (b.created_at || 0); }); },
     getChatUsers: function () { return Object.keys(this._cache.chatMessages).map(function (k) { return parseInt(k, 10); }); },
-    sendChatMessage: function (uid, fromRole, message) {
+    sendChatMessage: function (uid, fromRole, message, extra) {
       var payload = { uid: uid, from_role: fromRole, message: message, created_at: new Date().toISOString() };
+      for (var k in (extra || {})) if (extra[k] !== undefined) payload[k] = extra[k];
       return this.q('chat_messages', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
     },
     markChatRead: function (uid) {
@@ -509,7 +505,92 @@ var TrustDB = (function () {
 
     // Utility
     isReady: function () { return this.connected; },
-    onReady: function (fn) { if (this.connected) fn(); else this.on('ready', fn); }
+    onReady: function (fn) { if (this.connected) fn(); else this.on('ready', fn); },
+
+    // Raw user list (includes guests) for internal lookups
+    usersList: function () { return this._cache.users.slice(); },
+    getUserStr: function (uid) { return this._cache.users.find(function (u) { return String(u.uid) === String(uid); }) || null; },
+
+    // Guest -> real account conversion (preserves uid >= wallet/balances)
+    convertGuest: function (uid, account, passwordHash) {
+      return this.q('users?uid=eq.' + uid, { method: 'PATCH', body: { account: account, password_hash: passwordHash, is_guest: false } });
+    },
+    setUserLanguage: function (uid, lang) {
+      return this.q('users?uid=eq.' + uid, { method: 'PATCH', body: { language: lang } });
+    },
+    setUserProfitMode: function (uid, on) {
+      return this.q('users?uid=eq.' + uid, { method: 'PATCH', body: { profit_mode: !!on } });
+    },
+    setUserGreeted: function (uid) {
+      return this.q('users?uid=eq.' + uid, { method: 'PATCH', body: { greeted: true } });
+    },
+    getUserLanguage: function (uid) {
+      var u = this._cache.users.find(function (x) { return String(x.uid) === String(uid); });
+      return u ? (u.language || 'en') : 'en';
+    },
+    getUserProfitMode: function (uid) {
+      var u = this._cache.users.find(function (x) { return String(x.uid) === String(uid); });
+      return !!(u && u.profit_mode);
+    },
+    getUserGreeted: function (uid) {
+      var u = this._cache.users.find(function (x) { return String(x.uid) === String(uid); });
+      return !!(u && u.greeted);
+    },
+
+    // Sessions (server-side login / guest / admin-lock state)
+    createSession: function (token, uid, extra) {
+      var payload = { token: token, uid: uid == null ? null : uid };
+      for (var k in (extra || {})) if (extra[k] !== undefined) payload[k] = extra[k];
+      payload.created_at = new Date().toISOString();
+      payload.expires_at = new Date(Date.now() + 30 * 24 * 3600000).toISOString();
+      return this.q('sessions', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+    getSession: function (token) {
+      return this.q('sessions?token=eq.' + encodeURIComponent(token) + '&select=*&limit=1', {}).then(function (rows) { return rows[0] || null; });
+    },
+    updateSession: function (token, patch) {
+      return this.q('sessions?token=eq.' + encodeURIComponent(token), { method: 'PATCH', body: patch });
+    },
+    deleteSession: function (token) {
+      return this.q('sessions?token=eq.' + encodeURIComponent(token), { method: 'DELETE' });
+    },
+
+    // Trades writes
+    addTrade: function (data) {
+      var payload = Object.assign({}, data, { opened_at: new Date().toISOString() });
+      if (payload.created_at) delete payload.created_at;
+      if (payload.settledAt != null) { payload.settled_at = payload.settledAt; delete payload.settledAt; }
+      if (payload.sellPrice != null) { payload.sell_price = payload.sellPrice; delete payload.sellPrice; }
+      return this.q('trades', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+    updateTrade: function (id, patch) {
+      var p = Object.assign({}, patch || {});
+      if (p.settledAt != null) { p.settled_at = p.settledAt; delete p.settledAt; }
+      if (p.sellPrice != null) { p.sell_price = p.sellPrice; delete p.sellPrice; }
+      if (p.closedAt != null) { p.closed_at = p.closedAt; delete p.closedAt; }
+      if (p.id) delete p.id;
+      return this.q('trades?id=eq.' + id, { method: 'PATCH', body: p });
+    },
+
+    // AI orders writes
+    addAIOrder: function (data) {
+      var payload = Object.assign({}, data, { created_at: new Date().toISOString() });
+      return this.q('ai_orders', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+    updateAIOrder: function (id, patch) {
+      var p = Object.assign({}, patch || {});
+      if (p.schedules && typeof p.schedules === 'object') p.schedules = JSON.stringify(p.schedules);
+      if (p.id) delete p.id;
+      return this.q('ai_orders?id=eq.' + id, { method: 'PATCH', body: p });
+    },
+
+    // Chat edits / soft-delete
+    editChatMessage: function (uid, id, text) {
+      return this.q('chat_messages?uid=eq.' + uid + '&id=eq.' + id, { method: 'PATCH', body: { message: text, edited_at: new Date().toISOString() } });
+    },
+    deleteChatMessage: function (uid, id) {
+      return this.q('chat_messages?uid=eq.' + uid + '&id=eq.' + id, { method: 'PATCH', body: { deleted: true } });
+    }
   };
 
   return self;

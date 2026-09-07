@@ -110,7 +110,6 @@
     }
 
     var EXCHANGE_FEE = 0.1;
-    var EXCH_KEY = 'trustExchanges';
     var uid = TrustApp.getUserId();
 
     function allCoins() {
@@ -167,12 +166,20 @@
     }
 
     function getExchanges() {
-      try { return JSON.parse(localStorage.getItem(EXCH_KEY)) || []; } catch (e) { return []; }
+      // Exchange history is stored as DB transactions (type 'exchange').
+      try {
+        return (TrustApp.getTxns() || []).filter(function (t) { return t.type === 'exchange' && String(t.uid) === String(uid); }).map(function (t) {
+          var m = /EX\s+(\S+)\s+([\d.]+)-\>\s*(\S+)\s+([\d.eE+\-]+)/.exec(t.description || t.note || '');
+          var fromAmount = parseFloat(t.amount) || 0;
+          var to = m ? m[3] : '?';
+          var toAmount = m ? (parseFloat(m[4]) || 0) : 0;
+          return { uid: t.uid, from: t.coin, fromAmount: fromAmount, to: to, toAmount: toAmount, at: t.createdAt || t.created_at || t.at || '' };
+        });
+      } catch (e) { return []; }
     }
-    function saveExchanges(list) { try { localStorage.setItem(EXCH_KEY, JSON.stringify(list)); } catch (e) {} }
 
     function renderHist() {
-      var list = getExchanges().filter(function (e) { return e.uid === uid; });
+      var list = getExchanges();
       var box = document.getElementById('histList');
       if (!box) return;
       if (!list.length) { box.innerHTML = '<div class="empty-text" style="padding:20px 0;text-align:center;color:#999;font-size:13px;">' + TrustApp.t('exch.noYet') + '</div>'; return; }
@@ -196,9 +203,7 @@
       var recv = usd / rateOf(t) * (1 - EXCHANGE_FEE / 100);
       TrustApp.addBalance(uid, f, -amt);
       TrustApp.addBalance(uid, t, recv);
-      var list = getExchanges();
-      list.push({ uid: uid, from: f, fromAmount: amt, to: t, toAmount: recv, at: new Date().toISOString() });
-      saveExchanges(list);
+      try { TrustApp.addTxn({ uid: uid, account: uid, type: 'exchange', coin: f, amount: amt, status: 'confirmed', note: 'EX ' + f + ' ' + amt + '->' + t + ' ' + recv }); } catch (e2) {}
       toast('success', TrustApp.t('exch.success'));
       document.getElementById('fromAmount').value = '';
       document.getElementById('toAmount').value = '';
@@ -215,6 +220,8 @@
     window.addEventListener('storage', function (e) {
       if (e.key === 'trustBalances' || e.key === null) updateBals();
     });
+    window.addEventListener('trustsync:user_balances', function () { updateBals(); });
+    window.addEventListener('trustsync:transactions', function () { renderHist(); });
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) updateBals();
     });

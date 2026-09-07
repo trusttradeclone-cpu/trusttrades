@@ -121,7 +121,6 @@
       document.getElementById('curPass').value = '';
       document.getElementById('newPass').value = '';
       document.getElementById('confPass').value = '';
-      try { sessionStorage.removeItem('trustAdminAuthed'); } catch (e) {}
       setTimeout(function () { TrustApp.initAdminLock(); }, 300);
     };
   </script>
