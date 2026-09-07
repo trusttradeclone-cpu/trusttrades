@@ -292,9 +292,9 @@
       try { renderUsers(); } catch (e) {}
       if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { try { renderUsers(); } catch (e) {} });
     });
-    window.addEventListener('trustsync:balances', function () {
+    window.addEventListener('trustsync:user_balances', function () {
       try { renderUsers(); } catch (e) {}
-      if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { try { renderUsers(); } catch (e) {} });
+      if (DB && DB.pullBlob) DB.pullBlob('user_balances').then(function () { try { renderUsers(); } catch (e) {} });
     });
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustUsers', 'trustBalances', 'trustVerifications'], function () { renderUsers(); });

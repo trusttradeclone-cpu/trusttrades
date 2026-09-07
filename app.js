@@ -1097,7 +1097,89 @@
 
   var USERS_KEY = 'trustUsers';
 
+  function dbActive() {
+    return typeof DB !== 'undefined' && DB && DB.connected === true;
+  }
+
+  function dbUserToApp(u) {
+    return {
+      uid: u.uid,
+      account: u.account,
+      password: u.password_hash,
+      password_hash: u.password_hash,
+      email: u.email,
+      phone: u.phone,
+      createdAt: u.created_at,
+      created_at: u.created_at,
+      updatedAt: u.updated_at,
+      status: u.status || 'active',
+      is_admin: !!u.is_admin,
+      role: u.is_admin ? 'admin' : undefined,
+      isAdmin: u.is_admin ? true : undefined,
+      referral_code: u.referral_code,
+      referred_by: u.referred_by
+    };
+  }
+
+  function dbTxnToApp(t) {
+    var dir = 'credit';
+    var desc = t.description || '';
+    var dirm = /^\[(debit|credit)\]\s*/.exec(desc);
+    if (dirm) dir = dirm[1];
+    return {
+      id: String(t.id),
+      uid: t.uid,
+      account: '',
+      type: t.type || 'deposit',
+      coin: t.coin || 'USDT',
+      amount: parseFloat(t.amount) || 0,
+      status: t.status || 'completed',
+      note: desc.replace(/^\[(debit|credit)\]\s*/, ''),
+      proof: '',
+      createdAt: t.created_at,
+      created_at: t.created_at,
+      dir: dir,
+      db: true
+    };
+  }
+
+  function dbLoanToApp(l) {
+    return {
+      id: l.id,
+      uid: l.uid,
+      account: l.account || '',
+      amount: parseFloat(l.amount) || 0,
+      days: parseInt(l.days, 10) || 0,
+      rate: parseFloat(l.rate) || 0,
+      interest: parseFloat(l.interest) || 0,
+      status: l.status || 'pending',
+      createdAt: l.created_at,
+      created_at: l.created_at
+    };
+  }
+
+  function dbVerToApp(v) {
+    return {
+      uid: v.uid,
+      name: v.name || '',
+      email: v.email || '',
+      idNumber: v.id_number || '',
+      phone: v.phone || '',
+      idFront: v.id_front || '',
+      idBack: v.id_back || '',
+      status: v.status || 'pending',
+      submittedAt: v.submitted_at || null,
+      reviewedAt: v.reviewed_at || null,
+      note: v.rejection_reason || ''
+    };
+  }
+
   function getUsers() {
+    if (dbActive()) {
+      try {
+        return (DB.getUsers() || []).map(dbUserToApp);
+      } catch (e) {}
+    }
     var users = [];
     try { users = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) { users = []; }
     return users.filter(function (u) { return !u || !u.deleted; });
@@ -1133,10 +1215,11 @@
       return DB.register(account, password).then(function (res) {
         if (res.ok && res.user) {
           var user = res.user;
-          if (referralCode) {
-            var code = trim(referralCode);
-            // Find inviter by referral code
-            return DB.getUserByReferralCode ? DB.getUserByReferralCode(referralCode).then(function (inviter) {
+          var code = trim(referralCode || '');
+          if (code) {
+            // Find inviter by referral code (DB returns a user row; wrap so it can be a promise or a value)
+            var inv = DB.getUserByReferralCode ? DB.getUserByReferralCode(code) : null;
+            return Promise.resolve(inv).then(function (inviter) {
               if (!inviter) return { ok: false, msg: 'Invalid referral code' };
               user.referredBy = inviter.uid;
               return DB.addBalance(user.uid, 'USDT', 5).then(function () {
@@ -1144,7 +1227,7 @@
                   return { ok: true, user: user };
                 });
               });
-            }) : Promise.resolve({ ok: true, user: user });
+            });
           }
           return { ok: true, user: user };
         }
@@ -1275,6 +1358,13 @@
 
   function getBalances(uid) {
     if (!uid) return {};
+    if (dbActive()) {
+      var m = {};
+      try { m = DB.getAllBalances(uid) || {}; } catch (e) {}
+      var b = {};
+      COIN_KEYS.forEach(function (k) { b[k] = parseFloat(m[k]) || 0; });
+      return b;
+    }
     var m = getBalanceMap();
     if (m[uid]) return m[uid];
     var b = {};
@@ -1290,6 +1380,11 @@
   }
 
   function setBalance(uid, coin, amt) {
+    amt = parseFloat(amt) || 0;
+    if (dbActive()) {
+      try { DB.setBalance(uid, coin, amt).catch(function () {}); } catch (e) {}
+      return amt;
+    }
     var m = getBalanceMap();
     if (!m[uid]) m[uid] = {};
     m[uid][coin] = parseFloat(amt) || 0;
@@ -1298,10 +1393,22 @@
   }
 
   function addBalance(uid, coin, delta) {
-    return setBalance(uid, coin, getBalance(uid, coin) + (parseFloat(delta) || 0));
+    delta = parseFloat(delta) || 0;
+    if (dbActive()) {
+      var next = getBalance(uid, coin) + delta;
+      next = Math.max(0, next);
+      try { DB.addBalance(uid, coin, delta).catch(function () {}); } catch (e) {}
+      return next;
+    }
+    return setBalance(uid, coin, getBalance(uid, coin) + delta);
   }
 
-  function getTxns() { try { return JSON.parse(localStorage.getItem(TXN_KEY)) || []; } catch (e) { return []; } }
+  function getTxns() {
+    if (dbActive()) {
+      try { return (DB.getTransactions() || []).map(dbTxnToApp); } catch (e) {}
+    }
+    try { return JSON.parse(localStorage.getItem(TXN_KEY)) || []; } catch (e) { return []; }
+  }
   function saveTxns(list) { try { localStorage.setItem(TXN_KEY, JSON.stringify(list)); } catch (e) {} dbSync(TXN_KEY); }
 
   function genId(prefix) {
@@ -1322,6 +1429,23 @@
       proofName: obj.proofName || '',
       createdAt: new Date().toISOString()
     };
+    if (dbActive()) {
+      var dir = obj.dir === 'debit' ? 'debit' : 'credit';
+      var note = obj.note || '';
+      var desc = '[' + dir + '] ' + (obj.account && obj.account !== obj.uid ? obj.account + ' ' : '') + note;
+      DB.addTransaction({
+        uid: obj.uid || null,
+        type: obj.type || 'deposit',
+        coin: obj.coin || 'USDT',
+        amount: Math.abs(parseFloat(obj.amount) || 0),
+        status: obj.status || 'pending',
+        reference_id: '',
+        description: desc
+      }).then(function (row) {
+        if (row && row.id) t.dbId = row.id;
+      }).catch(function () {});
+      return t;
+    }
     var list = getTxns();
     list.unshift(t);
     saveTxns(list);
@@ -1329,6 +1453,10 @@
   }
 
   function setTxnStatus(id, status) {
+    if (dbActive()) {
+      DB.setTransactionStatus(id, status).catch(function () {});
+      return { id: id, status: status };
+    }
     var list = getTxns();
     var found = null;
     for (var i = 0; i < list.length; i++) {
@@ -1340,7 +1468,12 @@
 
   var LOAN_KEY = 'trustLoans';
 
-  function getLoans() { try { return JSON.parse(localStorage.getItem(LOAN_KEY)) || []; } catch (e) { return []; } }
+  function getLoans() {
+    if (dbActive()) {
+      try { return (DB.getLoans() || []).map(dbLoanToApp); } catch (e) {}
+    }
+    try { return JSON.parse(localStorage.getItem(LOAN_KEY)) || []; } catch (e) { return []; }
+  }
   function saveLoans(list) { try { localStorage.setItem(LOAN_KEY, JSON.stringify(list)); } catch (e) {} dbSync(LOAN_KEY); }
 
   function getLoansForUser(uid) {
@@ -1360,6 +1493,12 @@
       status: obj.status || 'pending',
       createdAt: new Date().toISOString()
     };
+    if (dbActive()) {
+      DB.addLoan({ uid: obj.uid || null, account: obj.account || obj.uid || '', amount: l.amount, days: l.days, rate: l.rate, interest: l.interest }).then(function (row) {
+        if (row && row.id) l.id = row.id;
+      }).catch(function () {});
+      return l;
+    }
     var list = getLoans();
     list.unshift(l);
     saveLoans(list);
@@ -1367,6 +1506,10 @@
   }
 
   function setLoanStatus(id, status) {
+    if (dbActive()) {
+      DB.updateLoanStatus(id, status).catch(function () {});
+      return { id: id, status: status };
+    }
     var list = getLoans();
     var found = null;
     for (var i = 0; i < list.length; i++) {
@@ -1652,7 +1795,7 @@
   function accountByUid(uid) {
     var users = getUsers();
     for (var i = 0; i < users.length; i++) {
-      if (users[i].uid === uid) return users[i];
+      if (String(users[i].uid) === String(uid)) return users[i];
     }
     return null;
   }
@@ -1695,10 +1838,21 @@
 
   function isUserAdmin(uid) {
     var u = accountByUid(uid);
-    return !!(u && (u.role === 'admin' || u.isAdmin === true));
+    return !!(u && (u.role === 'admin' || u.isAdmin === true || u.is_admin === true));
   }
 
   function setUserAdmin(uid, val) {
+    if (dbActive()) {
+      var u = accountByUid(uid);
+      if (!u) return { ok: false, msg: 'User not found' };
+      DB.updateUser(uid, { is_admin: !!val }).catch(function (e) {
+        try { if (window.toast) toast('error', 'Failed to update: ' + e.message); } catch (e2) {}
+      });
+      u.role = val ? 'admin' : undefined;
+      u.isAdmin = val ? true : undefined;
+      u.is_admin = !!val;
+      return { ok: true, user: u };
+    }
     var users = getUsers();
     for (var i = 0; i < users.length; i++) {
       if (users[i].uid === uid) {
@@ -1722,6 +1876,15 @@
   }
 
   function setUserStatus(uid, active) {
+    if (dbActive()) {
+      var u = accountByUid(uid);
+      if (!u) return { ok: false, msg: 'User not found' };
+      DB.updateUser(uid, { status: active ? 'active' : 'inactive' }).catch(function (e) {
+        try { if (window.toast) toast('error', 'Failed to update: ' + e.message); } catch (e2) {}
+      });
+      u.status = active ? 'active' : 'inactive';
+      return { ok: true, user: u };
+    }
     var users = getUsers();
     for (var i = 0; i < users.length; i++) {
       if (users[i].uid === uid) {
@@ -1736,9 +1899,19 @@
   // permanently delete a user and every trace of their data
   function removeUser(uid) {
     if (!uid) return { ok: false, msg: 'Uid required' };
-    if (isUserAdmin(uid) && uid === getUserId()) return { ok: false, msg: 'You cannot delete your own account' };
+    if (isUserAdmin(uid) && String(uid) === String(getUserId())) return { ok: false, msg: 'You cannot delete your own account' };
     var user = accountByUid(uid);
     if (!user) return { ok: false, msg: 'User not found' };
+
+    if (dbActive()) {
+      DB.deleteUser(uid).then(function () {
+        try { if (DB.pullBlob) DB.pullBlob('users').catch(function () {}); } catch (e) {}
+      }).catch(function (e) {
+        try { if (window.toast) toast('error', 'Failed to delete: ' + e.message); } catch (e2) {}
+      });
+      if (getUserId() === uid) logout();
+      return { ok: true, account: user.account };
+    }
 
     var users = getUsers();
     var marker = { uid: uid, account: user.account, deleted: true, deletedAt: new Date().toISOString() };
@@ -1805,9 +1978,19 @@
   }
 
   function getCoinAddresses() {
-    var out = {};
+    if (dbActive()) {
+      var out = {};
+      try {
+        var m = DB.getCoinAddresses() || {};
+        Object.keys(m).forEach(function (coin) {
+          out[coin] = { net: m[coin].network || m[coin].net || '', addr: m[coin].address || m[coin].addr || '' };
+        });
+        return out;
+      } catch (e) {}
+    }
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem(COIN_ADDR_KEY) || 'null'); } catch (e) { saved = null; }
+    var out = {};
     Object.keys(DEFAULT_COIN_ADDRESSES).forEach(function (coin) {
       out[coin] = { net: DEFAULT_COIN_ADDRESSES[coin].net, addr: DEFAULT_COIN_ADDRESSES[coin].addr };
     });
@@ -1825,6 +2008,12 @@
     net = String(net || '').trim();
     addr = String(addr || '').trim();
     if (!addr) return { ok: false, msg: 'Address is required' };
+    if (dbActive()) {
+      DB.saveCoinAddress(coin, net.slice(0, 40), addr.slice(0, 500)).catch(function (e) {
+        try { if (window.toast) toast('error', 'Save failed: ' + e.message); } catch (e2) {}
+      });
+      return { ok: true };
+    }
     var m = getCoinAddresses();
     m[coin] = { net: net.slice(0, 40), addr: addr.slice(0, 500) };
     try { localStorage.setItem(COIN_ADDR_KEY, JSON.stringify(m)); } catch (e) { return { ok: false, msg: 'Could not save (storage full?)' }; }
@@ -1833,6 +2022,10 @@
   }
 
   function removeCoinAddress(coin) {
+    if (dbActive()) {
+      DB.deleteCoinAddress(coin).catch(function () {});
+      return { ok: true };
+    }
     var m = getCoinAddresses();
     delete m[coin];
     try { localStorage.setItem(COIN_ADDR_KEY, JSON.stringify(m)); } catch (e) {}
@@ -1841,6 +2034,13 @@
   }
 
   function getVerifications() {
+    if (dbActive()) {
+      var map = {};
+      try {
+        (DB.getAllVerifications() || []).forEach(function (v) { map[v.uid] = dbVerToApp(v); });
+        return map;
+      } catch (e) {}
+    }
     try { return JSON.parse(localStorage.getItem(VER_KEY)) || {}; } catch (e) { return {}; }
   }
 
@@ -1857,6 +2057,21 @@
     if (!uid) return { ok: false, msg: 'Please login first' };
     if (!data || !data.name || !data.idNumber || !data.idFront || !data.idBack) {
       return { ok: false, msg: 'Please fill in all fields and upload both sides of your ID' };
+    }
+    if (dbActive()) {
+      var v = getVerification(uid);
+      if (v && v.status === 'pending') return { ok: false, msg: 'Your verification is already under review' };
+      DB.submitVerification(uid, {
+        name: String(data.name || '').slice(0, 120),
+        email: String(data.email || '').slice(0, 120),
+        idNumber: String(data.idNumber || '').slice(0, 80),
+        phone: String(data.phone || '').slice(0, 40),
+        id_front: String(data.idFront || ''),
+        id_back: String(data.idBack || '')
+      }).catch(function (e) {
+        try { if (window.toast) toast('error', 'Save failed: ' + e.message); } catch (e2) {}
+      });
+      return { ok: true };
     }
     var m = getVerifications();
     if (m[uid] && m[uid].status === 'pending') return { ok: false, msg: 'Your verification is already under review' };
@@ -1914,6 +2129,12 @@
   }
 
   function setVerificationStatus(uid, status, note) {
+    if (dbActive()) {
+      if (!getVerification(uid)) return { ok: false, msg: 'No verification submission found' };
+      if (status !== 'approved' && status !== 'rejected') return { ok: false, msg: 'Invalid status' };
+      DB.updateVerificationStatus(uid, status, { rejection_reason: String(note || '').slice(0, 300) }).catch(function () {});
+      return { ok: true };
+    }
     var m = getVerifications();
     if (!m[uid]) return { ok: false, msg: 'No verification submission found' };
     if (status !== 'approved' && status !== 'rejected') return { ok: false, msg: 'Invalid status' };
@@ -1926,6 +2147,16 @@
 
   function adminApproveKyc(uid) {
     if (!uid) return { ok: false, msg: 'No uid' };
+    if (dbActive()) {
+      var cur = getVerification(uid);
+      if (cur && cur.status === 'approved') return { ok: false, msg: 'Already approved' };
+      if (!cur) {
+        DB.submitVerification(uid, { name: '', email: '', idNumber: '', phone: '', id_front: '', id_back: '', status: 'approved' }).catch(function () {});
+      } else {
+        DB.updateVerificationStatus(uid, 'approved', { rejection_reason: '' }).catch(function () {});
+      }
+      return { ok: true };
+    }
     var m = getVerifications();
     if (!m[uid]) {
       m[uid] = {
@@ -1949,6 +2180,18 @@
   function changePassword(uid, currentPassword, newPassword) {
     if (!uid) return { ok: false, msg: 'Please login first' };
     if (!currentPassword || !newPassword) return { ok: false, msg: 'Please fill in all fields' };
+    if (dbActive()) {
+      var u = accountByUid(uid);
+      if (!u) return { ok: false, msg: 'Account not found' };
+      if (!(u.password_hash && DB._verifyPassword && DB._verifyPassword(u.password_hash, currentPassword, u.created_at))) return { ok: false, msg: 'Current password is incorrect' };
+      if (String(newPassword).length < 6) return { ok: false, msg: 'New password must be at least 6 characters' };
+      var nh = DB._hashPassword(newPassword, u.created_at);
+      DB.updateUser(uid, { password_hash: nh }).catch(function (e) {
+        try { if (window.toast) toast('error', 'Failed to update: ' + e.message); } catch (e2) {}
+      });
+      u.password_hash = nh; u.password = nh;
+      return { ok: true, user: u };
+    }
     var users = getUsers();
     var user = null;
     for (var i = 0; i < users.length; i++) {

@@ -80,28 +80,33 @@ var TrustDB = (function () {
     // Bootstrap: load initial data
     _bootstrap: function () {
       var self = this;
-      if (!localStorage.getItem('trustBlobsCleaned')) self._cleanupOldBlobs();
-      Promise.all([
-        self._loadTable('users', 'uid'),
-        self._loadTable('user_balances', 'uid'),
-        self._loadTable('verifications', 'uid'),
-        self._loadTable('loans', 'id'),
-        self._loadTable('transactions', 'id'),
-        self._loadTable('trades', 'id'),
-        self._loadTable('ai_orders', 'id'),
-        self._loadTable('chat_messages', 'uid'),
-        self._loadTable('coin_addresses', 'coin'),
-        self._loadTable('admin_settings', 'key')
-      ]).then(function () {
+      if (typeof localStorage !== 'undefined' && !localStorage.getItem('trustBlobsCleaned')) self._cleanupOldBlobs();
+      var tables = [
+        { t: 'users', k: 'uid' },
+        { t: 'user_balances', k: 'uid' },
+        { t: 'verifications', k: 'uid' },
+        { t: 'loans', k: 'id' },
+        { t: 'transactions', k: 'id' },
+        { t: 'trades', k: 'id' },
+        { t: 'ai_orders', k: 'id' },
+        { t: 'chat_messages', k: 'uid' },
+        { t: 'coin_addresses', k: 'coin' },
+        { t: 'admin_settings', k: 'key' }
+      ];
+      Promise.all(tables.map(function (x) {
+        return self._loadTable(x.t, x.k).catch(function (e) {
+          console.warn('TrustDB load failed for ' + x.t + ':', e.message || e);
+          return 0;
+        });
+      })).then(function () {
         self.connected = true;
         self.lastSync = Date.now();
         self._notify('ready');
         // Dispatch trustsync events so pages re-render with loaded data
-        var tables = ['users', 'user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages', 'coin_addresses', 'admin_settings'];
-        tables.forEach(function (t) {
+        tables.forEach(function (x) {
           if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
             try {
-              window.dispatchEvent(new window.CustomEvent('trustsync:' + t, { detail: { source: 'bootstrap' } }));
+              window.dispatchEvent(new window.CustomEvent('trustsync:' + x.t, { detail: { source: 'bootstrap' } }));
             } catch (e) {}
           }
         });
@@ -330,6 +335,19 @@ var TrustDB = (function () {
     updateUser: function (uid, patch) {
       return this.q('users?uid=eq.' + uid, { method: 'PATCH', body: patch });
     },
+    deleteUser: function (uid) {
+      var self = this;
+      // RLS blocks FK cascade when deleting through the anon key, so remove
+      // child rows first, then the user.
+      var tables = ['user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages'];
+      return tables.reduce(function (p, t) {
+        return p.then(function () {
+          return self.q(t + '?uid=eq.' + uid, { method: 'DELETE' }).catch(function () {});
+        });
+      }, Promise.resolve()).then(function () {
+        return self.q('users?uid=eq.' + uid, { method: 'DELETE' });
+      });
+    },
 
     // Balances
     getBalance: function (uid, coin) {
@@ -353,8 +371,14 @@ var TrustDB = (function () {
     getVerification: function (uid) { return this._cache.verifications[uid] || null; },
     getAllVerifications: function () { return Object.values(this._cache.verifications); },
     submitVerification: function (uid, data) {
-      var payload = Object.assign({ uid: uid }, data, { status: 'pending', submitted_at: new Date().toISOString() });
+      var payload = Object.assign({ uid: uid }, data, { status: data.status || 'pending', submitted_at: new Date().toISOString() });
       return this.q('verifications', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+    },
+
+    // Ensure local cache reflects a verification row (after admin actions)
+    refreshVerification: function (uid) {
+      var self = this;
+      return this._loadTable('verifications', 'uid').catch(function () {});
     },
     updateVerificationStatus: function (uid, status, extra) {
       var patch = Object.assign({ status: status, reviewed_at: new Date().toISOString() }, extra || {});
@@ -383,6 +407,9 @@ var TrustDB = (function () {
       var payload = Object.assign({}, data, { created_at: new Date().toISOString() });
       return this.q('transactions', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
     },
+    setTransactionStatus: function (id, status) {
+      return this.q('transactions?id=eq.' + id, { method: 'PATCH', body: { status: status } });
+    },
 
     // Trades
     getTrades: function () { return this._cache.trades.slice().sort(function (a, b) { return (b.opened_at || 0) - (a.opened_at || 0); }); },
@@ -409,6 +436,15 @@ var TrustDB = (function () {
     // Coin Addresses
     getCoinAddresses: function () { return this._cache.coinAddresses; },
     getCoinAddress: function (coin) { return this._cache.coinAddresses[coin] || null; },
+    saveCoinAddress: function (coin, net, addr) {
+      var self = this;
+      return this.q('coin_addresses', { method: 'POST', body: { coin: coin, network: net, address: addr, is_active: true } })
+        .then(function (rows) { return rows[0]; })
+        .catch(function () { return self.q('coin_addresses?coin=eq.' + coin, { method: 'PATCH', body: { address: addr, network: net, is_active: true } }); });
+    },
+    deleteCoinAddress: function (coin) {
+      return this.q('coin_addresses?coin=eq.' + coin, { method: 'DELETE' });
+    },
 
     // Admin Settings
     getSetting: function (key) { return this._cache.adminSettings[key] || null; },
@@ -421,20 +457,39 @@ var TrustDB = (function () {
     register: function (account, password) {
       var self = this;
       // PostgREST filters broken - check existence client-side
-      return self.q('users?select=uid&limit=1000', {}).then(function (rows) {
-        if (rows.some(function (u) { return u.account === account; })) throw new Error('Account exists');
+      return self.q('users?select=uid,account&limit=1000', {}).then(function (rows) {
+        if (rows.some(function (u) { return u.account && String(u.account).toLowerCase() === String(account).toLowerCase(); })) throw new Error('Account exists');
+        var used = {};
+        (self._cache.users || []).forEach(function (u) { if (u && u.uid != null) used[String(u.uid)] = true; });
+        rows.forEach(function (u) { if (u && u.uid != null) used[String(u.uid)] = true; });
         // Hash password using created_at as salt for consistent verification
         var createdAt = new Date().toISOString();
         var hash = self._hashPassword(password, createdAt);
-        var uid = Date.now() % 1000000000;
-        return self.createUser(account, hash, { uid: uid, created_at: createdAt }).then(function (user) {
-          // Initialize zero balances
-          ['USDT', 'TRX', 'BTC', 'ETH', 'BNB'].forEach(function (c) {
-            self.addBalance(user.uid, c, 0).catch(function () {});
+        function createWithUid(retries) {
+          if (retries <= 0) return Promise.reject(new Error('Could not generate a unique UID, please try again'));
+          var uid = parseInt(self._genUid(used), 10);
+          return self.createUser(account, hash, { uid: uid, created_at: createdAt }).then(function (user) {
+            // Initialize zero balances
+            ['USDT', 'TRX', 'BTC', 'ETH', 'BNB'].forEach(function (c) {
+              self.addBalance(user.uid, c, 0).catch(function () {});
+            });
+            return { ok: true, user: user };
+          }).catch(function (e) {
+            if (e && /23505|duplicate.*key/i.test(e.message)) return createWithUid(retries - 1);
+            throw e;
           });
-          return { ok: true, user: user };
-        });
+        }
+        return createWithUid(5);
       });
+    },
+
+    // Generate a unique 6-digit UID (100000-999999)
+    _genUid: function (used) {
+      used = used || {};
+      var uid;
+      do { uid = String(Math.floor(100000 + Math.random() * 900000)); } while (used[uid]);
+      if (used[uid]) return this._genUid(used);
+      return uid;
     },
 
     login: function (account, password) {
