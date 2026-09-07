@@ -420,9 +420,9 @@ var TrustDB = (function () {
     // Auth helpers
     register: function (account, password) {
       var self = this;
-      // Check if user exists
-      return this.q('users?account=eq.' + encodeURIComponent(account), {}).then(function (rows) {
-        if (rows.length) throw new Error('Account exists');
+      // PostgREST filters broken - check existence client-side
+      return self.q('users?select=uid&limit=1000', {}).then(function (rows) {
+        if (rows.some(function (u) { return u.account === account; })) throw new Error('Account exists');
         // Hash password using created_at as salt for consistent verification
         var createdAt = new Date().toISOString();
         var hash = self._hashPassword(password, createdAt);
@@ -439,13 +439,15 @@ var TrustDB = (function () {
 
     login: function (account, password) {
       var self = this;
-      return this.q('users?account=eq.' + encodeURIComponent(account), {}).then(function (rows) {
-        if (!rows.length) throw new Error('User not found');
-        var user = rows[0];
+      // PostgREST filters are broken - fetch users and filter client-side
+      return this.q('users?select=uid,account,password_hash,created_at,status,is_admin&limit=1000', {}).then(function (rows) {
+        var user = rows.find(function (u) { return u.account === account; });
+        if (!user) throw new Error('User not found');
         // Verify using consistent hash based on created_at
         if (!self._verifyPassword(user.password_hash, password, user.created_at)) {
           throw new Error('Invalid password');
         }
+        if (user.status === 'inactive') throw new Error('Account deactivated');
         return { ok: true, user: user };
       });
     },
