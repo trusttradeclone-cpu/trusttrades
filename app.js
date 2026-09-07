@@ -1128,6 +1128,30 @@
   function register(account, password, referralCode) {
     account = trim(account);
     if (!account || !password) return { ok: false, msg: 'Please fill in all fields' };
+    // Use DB.register if available (new Supabase tables), fallback to localStorage
+    if (typeof DB !== 'undefined' && DB.register) {
+      return DB.register(account, password).then(function (res) {
+        if (res.ok && res.user) {
+          var user = res.user;
+          if (referralCode) {
+            var code = trim(referralCode);
+            // Find inviter by referral code
+            return DB.getUserByReferralCode ? DB.getUserByReferralCode(referralCode).then(function (inviter) {
+              if (!inviter) return { ok: false, msg: 'Invalid referral code' };
+              user.referredBy = inviter.uid;
+              return DB.addBalance(user.uid, 'USDT', 5).then(function () {
+                return DB.addBalance(inviter.uid, 'USDT', 5).then(function () {
+                  return { ok: true, user: user };
+                });
+              });
+            }) : Promise.resolve({ ok: true, user: user });
+          }
+          return { ok: true, user: user };
+        }
+        return res;
+      }).catch(function (e) { return { ok: false, msg: e.message }; });
+    }
+    // Fallback to localStorage
     var users = getUsers();
     var exists = users.some(function (u) { return u.account.toLowerCase() === account.toLowerCase(); });
     if (exists) return { ok: false, msg: 'Account already registered' };
@@ -1148,13 +1172,9 @@
     getBalances(user.uid);
     if (user.referredBy) {
       addBalance(user.uid, 'USDT', 5);
-      try {
-        addTxn({ uid: user.uid, account: user.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral bonus' });
-      } catch (e) {}
+      try { addTxn({ uid: user.uid, account: user.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral bonus' }); } catch (e) {}
       addBalance(inviter.uid, 'USDT', 5);
-      try {
-        addTxn({ uid: inviter.uid, account: inviter.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral reward' });
-      } catch (e) {}
+      try { addTxn({ uid: inviter.uid, account: inviter.account, type: 'referral_bonus', coin: 'USDT', amount: 5, status: 'confirmed', note: 'Referral reward' }); } catch (e) {}
     }
     return { ok: true, user: user };
   }
@@ -1162,6 +1182,18 @@
   function login(account, password) {
     account = trim(account);
     if (!account || !password) return { ok: false, msg: 'Please enter account and password' };
+    // Use DB.login if available
+    if (typeof DB !== 'undefined' && DB.login) {
+      return DB.login(account, password).then(function (res) {
+        if (res.ok && res.user) {
+          var user = res.user;
+          try { localStorage.setItem('trustLoggedIn', '1'); localStorage.setItem('trustUserId', user.uid); } catch (e) {}
+          return { ok: true, user: user };
+        }
+        return res;
+      }).catch(function (e) { return { ok: false, msg: e.message }; });
+    }
+    // Fallback to localStorage
     var users = getUsers();
     var user = null;
     for (var i = 0; i < users.length; i++) {

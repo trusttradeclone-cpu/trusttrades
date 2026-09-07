@@ -311,12 +311,21 @@ var TrustDB = (function () {
     // Users
     getUsers: function () { return this._cache.users.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },
     getUser: function (uid) { return this._cache.users.find(function (u) { return u.uid === uid; }); },
+    getUserByReferralCode: function (code) { return this._cache.users.find(function (u) { return u.referral_code === code; }); },
     createUser: function (account, passwordHash, extra) {
       var self = this;
       var payload = Object.assign({ account: account, password_hash: passwordHash }, extra || {});
       return this.q('users', { method: 'POST', body: payload }).then(function (rows) {
         return rows[0];
       });
+    },
+    // Generate consistent password hash using created_at as salt
+    _hashPassword: function (password, createdAt) {
+      return 'hash_' + btoa(password + ':' + (createdAt || new Date().toISOString()).slice(0, 10));
+    },
+    // Verify password against stored hash
+    _verifyPassword: function (hash, password, createdAt) {
+      return hash === this._hashPassword(password, createdAt);
     },
     updateUser: function (uid, patch) {
       return this.q('users?uid=eq.' + uid, { method: 'PATCH', body: patch });
@@ -414,10 +423,11 @@ var TrustDB = (function () {
       // Check if user exists
       return this.q('users?account=eq.' + encodeURIComponent(account), {}).then(function (rows) {
         if (rows.length) throw new Error('Account exists');
-        // Hash password (simple for demo - use proper bcrypt in production)
-        var hash = 'hash_' + btoa(password + ':' + Date.now());
+        // Hash password using created_at as salt for consistent verification
+        var createdAt = new Date().toISOString();
+        var hash = self._hashPassword(password, createdAt);
         var uid = Date.now() % 1000000000;
-        return self.createUser(account, hash, { uid: uid, created_at: new Date().toISOString() }).then(function (user) {
+        return self.createUser(account, hash, { uid: uid, created_at: createdAt }).then(function (user) {
           // Initialize zero balances
           ['USDT', 'TRX', 'BTC', 'ETH', 'BNB'].forEach(function (c) {
             self.addBalance(user.uid, c, 0).catch(function () {});
@@ -428,11 +438,12 @@ var TrustDB = (function () {
     },
 
     login: function (account, password) {
+      var self = this;
       return this.q('users?account=eq.' + encodeURIComponent(account), {}).then(function (rows) {
         if (!rows.length) throw new Error('User not found');
         var user = rows[0];
-        // Simple hash check (replace with bcrypt in production)
-        if (user.password_hash !== 'hash_' + btoa(password + ':' + user.created_at.slice(0, 10))) {
+        // Verify using consistent hash based on created_at
+        if (!self._verifyPassword(user.password_hash, password, user.created_at)) {
           throw new Error('Invalid password');
         }
         return { ok: true, user: user };
