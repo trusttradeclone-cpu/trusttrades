@@ -132,6 +132,10 @@
 
   global.AppConfig = mergeConfig(null);
 
+  // Needed by restoreSession() which runs during boot below (before the
+  // session-layer `var` statements further down execute).
+  var SESSION_COOKIE = 'trsstok';
+
   (function bootDbHooks() {
     if (typeof DB === 'undefined' || !DB) return;
     function hook() {
@@ -1163,7 +1167,6 @@
   }
 
   /* ---- session layer (DB sessions table + small cookie) ---- */
-  var SESSION_COOKIE = 'trsstok';
   var _session = null; // { token, uid, is_guest, admin, language }
 
   function getToken() {
@@ -1337,10 +1340,17 @@
     var desc = t.description || '';
     var dirm = /^\[(debit|credit)\]\s*/.exec(desc);
     if (dirm) dir = dirm[1];
+    var acct = '';
+    try {
+      if (dbActive() && t.uid != null && DB.getUserStr) {
+        var u = DB.getUserStr(t.uid);
+        if (u) acct = u.account || '';
+      }
+    } catch (e) {}
     return {
       id: String(t.id),
       uid: t.uid,
-      account: '',
+      account: acct || t.account || '',
       type: t.type || 'deposit',
       coin: t.coin || 'USDT',
       amount: parseFloat(t.amount) || 0,
