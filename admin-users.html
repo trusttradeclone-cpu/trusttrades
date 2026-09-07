@@ -300,9 +300,9 @@
       TrustApp.watchStorage(['trustUsers', 'trustBalances', 'trustVerifications'], function () { renderUsers(); });
     window.addEventListener('trustver', renderUsers);
     }
-    // Wait for DB to be ready before initial render
+    // Wait for DB to be fully connected before initial render
     if (window.DB && DB.ready) {
-      DB.ready().then(function () { renderUsers(); });
+      if (DB.onReady) { DB.onReady(function () { renderUsers(); }); } else { DB.ready().then(function () { renderUsers(); }); }
     } else {
       renderUsers();
     }

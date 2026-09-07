@@ -1179,10 +1179,12 @@
       try {
         return (DB.getUsers() || []).map(dbUserToApp);
       } catch (e) {}
+    } else if (typeof DB === 'undefined' || (DB && DB.ENABLED !== true)) {
+      var users = [];
+      try { users = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) { users = []; }
+      return users.filter(function (u) { return !u || !u.deleted; });
     }
-    var users = [];
-    try { users = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) { users = []; }
-    return users.filter(function (u) { return !u || !u.deleted; });
+    return [];
   }
 
   function saveUsers(users) {

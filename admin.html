@@ -222,9 +222,9 @@
     ['trustsync:users', 'trustsync:txns', 'trustsync:loans', 'trustsync:verifications', 'trustsync:balances', 'trustsync:chat', 'trustsync:aiorders', 'trustsync:orders', 'trustsync:trades'].forEach(function (ev) {
       window.addEventListener(ev, function () { renderDash(); });
     });
-    // Wait for DB to be ready before initial render
+    // Wait for DB to be fully connected before initial render
     if (window.DB && DB.ready) {
-      DB.ready().then(function () { renderDash(); });
+      if (DB.onReady) { DB.onReady(function () { renderDash(); }); } else { DB.ready().then(function () { renderDash(); }); }
     } else {
       renderDash();
     }
@@ -319,6 +319,9 @@
 
     renderDash();
     setTimeout(renderDash, 150);
+    ['users', 'user_balances', 'transactions', 'loans', 'verifications', 'chat_messages'].forEach(function (t) {
+      window.addEventListener('trustsync:' + t, function () { renderDash(); });
+    });
     setInterval(function () { if (!document.hidden) renderDash(); }, 5000);
     var RELOAD_KEYS = ['trustUsers', 'trustTxns', 'trustLoans', 'trustAIOrders', 'trustVerifications', 'trustChat', 'trustBalances'];
     window.addEventListener('storage', function (e) {
