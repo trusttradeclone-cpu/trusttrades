@@ -1201,7 +1201,11 @@
       var tok = getToken();
       if (!tok) { _session = null; return Promise.resolve(null); }
       if (!dbActive()) return Promise.resolve(_session || null);
-      return DB.getSession(tok).then(function (s) {
+      // Add timeout to prevent hanging
+      var timeout = new Promise(function (_, reject) {
+        setTimeout(function () { reject(new Error('getSession timeout')); }, 8000);
+      });
+      return Promise.race([DB.getSession(tok), timeout]).then(function (s) {
         if (!s) { _session = null; return null; }
         _session = {
           token: tok,
@@ -1589,9 +1593,23 @@
     var lock = document.getElementById('adminLock');
     if (!lock) return;
     try {
-      if (_session && _session.admin) return;
-      if (isCurrentUserAdmin()) return;
-      lock.style.display = 'flex';
+      var decide = function () {
+        if (_session && _session.admin) { lock.style.display = 'none'; return; }
+        if (isCurrentUserAdmin()) { lock.style.display = 'none'; return; }
+        lock.style.display = 'flex';
+      };
+      // Session restore is async (DB read) and the DB itself may still be
+      // connecting when the page inline script runs. If we have a token, always
+      // wait for restore to finish before deciding, so a valid admin session is
+      // never blocked by a permanent lock.
+      if (getToken()) {
+        restoreSession().then(function (s) {
+          if (s && s.admin) lock.style.display = 'none';
+          else decide();
+        }).catch(function () { decide(); });
+        return;
+      }
+      decide();
     } catch (e) {}
   }
 
@@ -2164,7 +2182,13 @@
   }
 
   function isCurrentUserAdmin() {
+    if (_session && _session.admin) return true;
     return isUserAdmin(getUserId());
+  }
+
+  // Expose internal session state for debugging
+  function getSessionState() {
+    return _session;
   }
 
   function isUserActive(uid) {
@@ -2429,7 +2453,7 @@
 
   (function guardAuth() {
     var f = (location.pathname.split('/').pop() || '').toLowerCase();
-    var pub = ['login.html', 'register.html', 'service.html'];
+    var pub = ['login.html', 'register.html', 'service.html', 'debug_live.html'];
     if (pub.indexOf(f) !== -1) return;
     if (f.indexOf('admin') === 0) return;
     // Session restore is async (reads the DB); wait for it before deciding.
@@ -2865,6 +2889,16 @@
   global.setUserStatus = setUserStatus;
   global.initAdminLock = initAdminLock;
   global.unlockAdmin = unlockAdmin;
+  global.restoreSession = restoreSession;
+  global.getSessionState = getSessionState;
+
+  // Also add to TrustApp for convenience
+  global.TrustApp.restoreSession = restoreSession;
+  global.TrustApp.getSessionState = getSessionState;
+  global.TrustApp.unlockAdmin = unlockAdmin;
+  global.TrustApp.initAdminLock = initAdminLock;
+  global.TrustApp.isCurrentUserAdmin = isCurrentUserAdmin;
+  global.TrustApp.getUserId = getUserId;
 
   (function startAIEngine() {
     try { aiProcess(); } catch (e) {}

@@ -81,7 +81,8 @@
       if (lock) log('Admin lock display: ' + (lock.style.display || 'none (default)'));
       
       // Internal session
-      log('_session: ' + JSON.stringify(window.TrustApp ? TrustApp._session : 'no TrustApp'));
+      const sess = window.TrustApp ? TrustApp.getSessionState() : 'no TrustApp';
+      log('_session: ' + JSON.stringify(sess));
       log('isCurrentUserAdmin(): ' + (window.TrustApp ? TrustApp.isCurrentUserAdmin() : 'n/a'));
       log('getUserId(): ' + (window.TrustApp ? TrustApp.getUserId() : 'n/a'));
       
@@ -94,8 +95,8 @@
       log('=== DIAGNOSTIC COMPLETE ===');
     }
 
-    async function testUnlock() {
-      log('\\n=== TEST UNLOCK ===');
+async function testUnlock() {
+      log('\n=== TEST UNLOCK ===');
       const lock = document.getElementById('adminLock');
       const input = document.getElementById('adminPassInput') || document.createElement('input');
       if (!input.id) { input.id = 'adminPassInput'; input.type = 'password'; document.body.appendChild(input); }
@@ -108,7 +109,8 @@
       await new Promise(r => setTimeout(r, 800));
       
       log('After unlock:');
-      log('_session: ' + JSON.stringify(window.TrustApp._session));
+      const sess = window.TrustApp ? TrustApp.getSessionState() : 'no TrustApp';
+      log('_session: ' + JSON.stringify(sess));
       log('isCurrentUserAdmin(): ' + window.TrustApp.isCurrentUserAdmin());
       if (lock) log('Lock display: ' + lock.style.display);
       
@@ -118,9 +120,10 @@
         log('DB session after unlock: ' + JSON.stringify(s));
       }
     }
+    }
 
-    async function testNavigation() {
-      log('\\n=== TEST NAV PERSISTENCE ===');
+async function testNavigation() {
+      log('\n=== TEST NAV PERSISTENCE ===');
       const tokMatch = document.cookie.match(/trsstok=([^;]+)/);
       if (!tokMatch) { log('No token - cannot test'); return; }
       const tok = tokMatch[1];
@@ -129,7 +132,8 @@
       await window.TrustApp.restoreSession();
       
       log('After restore:');
-      log('_session: ' + JSON.stringify(window.TrustApp._session));
+      const sess = window.TrustApp ? TrustApp.getSessionState() : 'no TrustApp';
+      log('_session: ' + JSON.stringify(sess));
       log('isCurrentUserAdmin(): ' + window.TrustApp.isCurrentUserAdmin());
       
       const lock = document.getElementById('adminLock');
@@ -139,6 +143,10 @@
         await new Promise(r => setTimeout(r, 200));
         log('After initAdminLock, lock display: ' + lock.style.display);
       }
+      
+      const s = await DB.getSession(tok);
+      log('DB session: ' + JSON.stringify(s));
+    }
       
       const s = await DB.getSession(tok);
       log('DB session: ' + JSON.stringify(s));

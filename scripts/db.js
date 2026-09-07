@@ -109,17 +109,8 @@ var TrustDB = (function () {
 
     // compat: pullBlob refreshes a table from Supabase
     pullBlob: function (table) {
-      var self = this;
-      var keyField = table === 'users' ? 'uid' :
-                     table === 'user_balances' ? 'uid' :
-                     table === 'verifications' ? 'uid' :
-                     table === 'loans' ? 'id' :
-                     table === 'transactions' ? 'id' :
-                     table === 'trades' ? 'id' :
-                     table === 'ai_orders' ? 'id' :
-                     table === 'chat_messages' ? 'uid' :
-                     table === 'coin_addresses' ? 'coin' : 'key';
-      return self._loadTable(table, keyField);
+      table = this._canonical(table);
+      return this._loadTable(table, this._keyField(table));
     },
 
     // Generic table loader
@@ -143,18 +134,13 @@ var TrustDB = (function () {
           var smap = {};
           rows.forEach(function (r) { smap[r.key] = r.value; });
           self._cache.adminSettings = smap;
-        } else if (Array.isArray(rows)) {
-          if (keyField === 'id' && table !== 'loans') {
-            cache.length = 0;
-            rows.forEach(function (r) { cache.push(r); });
-          } else if (keyField === 'uid' || keyField === 'coin') {
-            var kmap = {};
-            rows.forEach(function (r) { kmap[r[keyField]] = r; });
-            Object.assign(cache, kmap);
-          } else {
-            cache.length = 0;
-            rows.forEach(function (r) { cache.push(r); });
-          }
+        } else if (Array.isArray(cache)) {
+          cache.length = 0;
+          rows.forEach(function (r) { cache.push(r); });
+        } else {
+          var kmap = {};
+          rows.forEach(function (r) { kmap[r[keyField]] = r; });
+          Object.assign(cache, kmap);
         }
         return rows.length;
       });
@@ -164,6 +150,7 @@ var TrustDB = (function () {
     q: function (path, opts) {
       opts = opts || {};
       if (!this.ENABLED) return Promise.resolve(null);
+      var self = this;
       var headers = {
         'apikey': this.anon,
         'Authorization': 'Bearer ' + this.anon,
@@ -177,8 +164,70 @@ var TrustDB = (function () {
         if (!res.ok) return res.text().then(function (t) { throw new Error('HTTP ' + res.status + ' ' + path + ': ' + t); });
         if (opts.text) return res.text();
         if (opts.noContent) return null;
-        return res.json();
+        return res.json().then(function (data) {
+          var method = (opts.method || 'GET').toUpperCase();
+          if (method !== 'GET' && opts.refreshCache !== false) {
+            // Keep the in-memory cache current after any write so subsequent
+            // reads immediately reflect the new state.
+            self._refreshTable(path.split('?')[0]);
+          }
+          return data;
+        });
       });
+    },
+
+    // Table name -> key field used to dedupe cache rows
+    _keyField: function (table) {
+      table = this._canonical(table);
+      return table === 'users' ? 'uid' :
+             table === 'user_balances' ? 'uid' :
+             table === 'verifications' ? 'uid' :
+             table === 'loans' ? 'id' :
+             table === 'transactions' ? 'id' :
+             table === 'trades' ? 'id' :
+             table === 'ai_orders' ? 'id' :
+             table === 'chat_messages' ? 'uid' :
+             table === 'coin_addresses' ? 'coin' : 'key';
+    },
+
+    // Legacy short/alias table names -> real Supabase tables
+    _canonical: function (table) {
+      var aliases = {
+        txns: 'transactions',
+        transaction: 'transactions',
+        balances: 'user_balances',
+        balance: 'user_balances',
+        chats: 'chat_messages',
+        chat: 'chat_messages',
+        aiorders: 'ai_orders',
+        orders: 'ai_orders',
+        ai: 'ai_orders'
+      };
+      return aliases[table] || table;
+    },
+
+    // Dispatch trustsync:<name> for the canonical table plus every legacy
+    // alias so old pages re-render on realtime/write events.
+    _dispatchTrustSync: function (table) {
+      if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+      var names = [table];
+      var aliases = { txns: 'transactions', transactions: 'transactions', balances: 'user_balances', user_balances: 'user_balances', chats: 'chat_messages', chat: 'chat_messages', chat_messages: 'chat_messages', aiorders: 'ai_orders', orders: 'ai_orders', ai_orders: 'ai_orders' };
+      for (var a in aliases) if (aliases[a] === table && names.indexOf(a) === -1) names.push(a);
+      names.forEach(function (n) {
+        try { window.dispatchEvent(new window.CustomEvent('trustsync:' + n, { detail: {} })); } catch (e) {}
+      });
+    },
+
+    // Reload one table into cache after a local write, then notify pages.
+    _refreshTable: function (table) {
+      var self = this;
+      table = self._canonical(table);
+      var known = ['users', 'user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages', 'coin_addresses', 'admin_settings'];
+      if (known.indexOf(table) === -1) return Promise.resolve(true);
+      return self._loadTable(table, self._keyField(table)).then(function () {
+        self._dispatchTrustSync(table);
+        return true;
+      }).catch(function () { return false; });
     },
 
     // Realtime subscriptions
@@ -288,12 +337,8 @@ var TrustDB = (function () {
       }
       self._notify('change:' + table, { event: eventType, record: newRecord, old: oldRecord });
       self._notify('change', { table: table, event: eventType });
-      // compat: dispatch trustsync events for legacy pages
-      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-        try {
-          window.dispatchEvent(new window.CustomEvent('trustsync:' + table, { detail: { source: 'realtime', event: eventType } }));
-        } catch (e) {}
-      }
+      // compat: dispatch trustsync events for legacy pages (canonical + aliases)
+      self._dispatchTrustSync(table);
     },
 
     // Event system
