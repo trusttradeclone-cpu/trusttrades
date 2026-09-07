@@ -97,14 +97,20 @@
       }
       if (fields[1].value.length < 6) { toast('error', 'Password must be at least 6 characters'); return false; }
       if (fields[1].value !== fields[2].value) { toast('error', 'Passwords do not match'); return false; }
-      var res = TrustApp.register(account, fields[1].value, fields[3] ? fields[3].value : '');
-      if (!res.ok) { toast('error', res.msg); return false; }
-      try {
-        localStorage.setItem('trustLoggedIn', '1');
-        localStorage.setItem('trustUserId', res.user.uid);
-      } catch (err) {}
-      toast('success', 'Registration successful. Your UID: ' + res.user.uid, 4500);
-      setTimeout(function () { location.href = 'index.html'; }, 2200);
+      btn.disabled = true; btn.textContent = 'Registering...';
+      TrustApp.register(account, fields[1].value, fields[3] ? fields[3].value : '').then(function (res) {
+        btn.disabled = false; btn.textContent = 'Register';
+        if (!res.ok) { toast('error', res.msg || 'Registration failed'); return; }
+        try {
+          localStorage.setItem('trustLoggedIn', '1');
+          localStorage.setItem('trustUserId', res.user.uid);
+        } catch (err) {}
+        toast('success', 'Registration successful. Your UID: ' + res.user.uid, 4500);
+        setTimeout(function () { location.href = 'index.html'; }, 2200);
+      }).catch(function (err) {
+        btn.disabled = false; btn.textContent = 'Register';
+        toast('error', err.message || 'Registration failed');
+      });
       return false;
     }
 

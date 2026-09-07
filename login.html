@@ -88,16 +88,22 @@
       e.preventDefault();
       var user = fields[0].value;
       var pass = fields[1].value;
-      var res = TrustApp.login(user, pass);
-      if (!res.ok) { toast('error', res.msg); return false; }
-      if (document.getElementById('remember').checked) {
-        try { localStorage.setItem('savedUsername', user); localStorage.setItem('savedPassword', pass); localStorage.setItem('rememberMe', '1'); } catch (err) {}
-      } else {
-        try { localStorage.removeItem('savedUsername'); localStorage.removeItem('savedPassword'); localStorage.removeItem('rememberMe'); } catch (err) {}
-      }
-      toast('success', 'Login successful');
-      var r = getParam('r');
-      setTimeout(function () { location.href = r || 'index.html'; }, 800);
+      btn.disabled = true; btn.textContent = 'Loading...';
+      TrustApp.login(user, pass).then(function (res) {
+        btn.disabled = false; btn.textContent = 'Login';
+        if (!res.ok) { toast('error', res.msg || 'Login failed'); return; }
+        if (document.getElementById('remember').checked) {
+          try { localStorage.setItem('savedUsername', user); localStorage.setItem('savedPassword', pass); localStorage.setItem('rememberMe', '1'); } catch (err) {}
+        } else {
+          try { localStorage.removeItem('savedUsername'); localStorage.removeItem('savedPassword'); localStorage.removeItem('rememberMe'); } catch (err) {}
+        }
+        toast('success', 'Login successful');
+        var r = getParam('r');
+        setTimeout(function () { location.href = r || 'index.html'; }, 800);
+      }).catch(function (err) {
+        btn.disabled = false; btn.textContent = 'Login';
+        toast('error', err.message || 'Login failed');
+      });
       return false;
     }
 
