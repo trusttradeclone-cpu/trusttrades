@@ -1164,6 +1164,31 @@
     } else if (vipArea.querySelector('.vip-label')) {
       vipArea.innerHTML = '<span class="vip-label">' + (t('menu.function') || 'Function') + '</span>';
     }
+    // Update wallet balance display in header
+    var walletBtn = document.getElementById('walletBtn');
+    var walletBalance = document.getElementById('walletBalance');
+    var walletBalanceAmount = document.getElementById('walletBalanceAmount');
+    if (walletBtn && walletBalance && walletBalanceAmount) {
+      if (uid) {
+        var b = TrustApp.getBalances ? TrustApp.getBalances(uid) : {};
+        var total = 0;
+        Object.keys(b).forEach(function (c) {
+          var bal = parseFloat(b[c]) || 0;
+          if (c === 'USDT') total += bal;
+          else {
+            var d = TrustApp.findCoin ? TrustApp.findCoin(c) : null;
+            var price = d ? (parseFloat(d.price) || 0) : 0;
+            total += bal * price;
+          }
+        });
+        walletBalanceAmount.textContent = '$ ' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        walletBtn.style.display = 'none';
+        walletBalance.style.display = 'flex';
+      } else {
+        walletBtn.style.display = 'flex';
+        walletBalance.style.display = 'none';
+      }
+    }
   }
 
   /* ---- session layer (DB sessions table + small cookie) ---- */

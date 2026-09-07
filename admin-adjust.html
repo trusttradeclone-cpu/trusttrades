@@ -209,21 +209,8 @@
     cSel.onchange = refreshBal;
     refreshBal();
     renderHist();
+    // Remove auto-refresh that changes user selection - only refresh balance/history
     setInterval(function () {
-      var cur = uSel.value;
-      var next = TrustApp.getUsers();
-      var changed = next.length !== users.length || !next.some(function (u) { return u.uid === cur; });
-      if (changed) {
-        users = next;
-        uSel.innerHTML = '';
-        users.forEach(function (u) {
-          var o = document.createElement('option');
-          o.value = u.uid;
-          o.textContent = u.account + ' (' + u.uid + ')';
-          uSel.appendChild(o);
-        });
-        if (next.length) uSel.value = next.some(function (u) { return u.uid === cur; }) ? cur : next[0].uid;
-      }
       refreshBal();
       renderHist();
     }, 5000);
