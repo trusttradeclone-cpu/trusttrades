@@ -222,6 +222,7 @@
     window.addEventListener('storage', function (e) {
       if (e.key === 'trustCoinAddresses' || e.key === null) renderList();
     });
+    window.addEventListener('trustsync:coin_addresses', function () { renderList(); });
   </script>
 </body>
 </html>

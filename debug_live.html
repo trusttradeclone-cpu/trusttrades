@@ -95,7 +95,7 @@
       log('=== DIAGNOSTIC COMPLETE ===');
     }
 
-async function testUnlock() {
+    async function testUnlock() {
       log('\n=== TEST UNLOCK ===');
       const lock = document.getElementById('adminLock');
       const input = document.getElementById('adminPassInput') || document.createElement('input');
@@ -120,9 +120,8 @@ async function testUnlock() {
         log('DB session after unlock: ' + JSON.stringify(s));
       }
     }
-    }
 
-async function testNavigation() {
+    async function testNavigation() {
       log('\n=== TEST NAV PERSISTENCE ===');
       const tokMatch = document.cookie.match(/trsstok=([^;]+)/);
       if (!tokMatch) { log('No token - cannot test'); return; }
@@ -147,13 +146,9 @@ async function testNavigation() {
       const s = await DB.getSession(tok);
       log('DB session: ' + JSON.stringify(s));
     }
-      
-      const s = await DB.getSession(tok);
-      log('DB session: ' + JSON.stringify(s));
-    }
 
     async function forceAdminSession() {
-      log('\\n=== FORCE ADMIN SESSION ===');
+      log('\n=== FORCE ADMIN SESSION ===');
       // Create a fresh token and session with admin=true
       const tok = 'trsstok=' + Math.random().toString(36).substring(2) + Date.now();
       document.cookie = tok + '; path=/; SameSite=Lax';

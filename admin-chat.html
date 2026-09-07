@@ -437,6 +437,7 @@
     refresh();
     setInterval(refresh, 2000);
     window.addEventListener('trustchat', function () { refresh(); });
+    window.addEventListener('trustsync:chat_messages', function () { refresh(); });
     // fast chat channel: pull only the chat blob ~1s so new user messages
     // and replies appear without waiting for the 5s whole-app poll
     var chatSyncBusy = false;

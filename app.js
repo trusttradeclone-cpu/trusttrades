@@ -1530,6 +1530,7 @@
         return res;
       }).then(function (res) {
         if (res.ok && res.user) {
+          _notifyChange('users');
           return _activateSession(res.user.uid, false, !!res.user.is_admin, lang).then(function () { return res; });
         }
         return res;
@@ -1640,7 +1641,12 @@
     }
   }
 
-  var BAL_KEY = 'trustBalances';
+  // Dispatch trustsync event to refresh admin pages in real-time
+  function _notifyChange(table) {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      try { window.dispatchEvent(new window.CustomEvent('trustsync:' + table, { detail: { source: 'local-write' } })); } catch (e) {}
+    }
+  }
   var TXN_KEY = 'trustTxns';
   var TRADE_KEY = 'trustTrades';
   var CHAT_KEY = 'trustChat';
@@ -1726,6 +1732,7 @@
         description: desc
       }).then(function (row) {
         if (row && row.id) t.dbId = row.id;
+        _notifyChange('transactions');
       }).catch(function () {});
       return t;
     }
@@ -1734,7 +1741,9 @@
 
   function setTxnStatus(id, status) {
     if (dbActive()) {
-      DB.setTransactionStatus(id, status).catch(function () {});
+      DB.setTransactionStatus(id, status).then(function () {
+        _notifyChange('transactions');
+      }).catch(function () {});
       return { id: id, status: status };
     }
     return { id: id, status: status };
@@ -1770,6 +1779,7 @@
     if (dbActive()) {
       DB.addLoan({ uid: obj.uid || null, account: obj.account || obj.uid || '', amount: l.amount, days: l.days, rate: l.rate, interest: l.interest }).then(function (row) {
         if (row && row.id) l.id = row.id;
+        _notifyChange('loans');
       }).catch(function () {});
       return l;
     }
@@ -1778,7 +1788,9 @@
 
   function setLoanStatus(id, status) {
     if (dbActive()) {
-      DB.updateLoanStatus(id, status).catch(function () {});
+      DB.updateLoanStatus(id, status).then(function () {
+        _notifyChange('loans');
+      }).catch(function () {});
       return { id: id, status: status };
     }
     return { id: id, status: status };
@@ -2048,6 +2060,7 @@
     if (dbActive()) {
       DB.sendChatMessage(uid, msg.from, msg.text).then(function (row) {
         if (row && row.id) msg.mid = String(row.id);
+        _notifyChange('chat_messages');
       }).catch(function () {});
     }
     return msg;
@@ -2061,7 +2074,9 @@
     m.text = String(text == null ? '' : text).slice(0, 2000);
     m.edited = true;
     m.editedAt = new Date().toISOString();
-    if (dbActive()) DB.editChatMessage(uid, m.mid, m.text).catch(function () {});
+    if (dbActive()) DB.editChatMessage(uid, m.mid, m.text).then(function () {
+      _notifyChange('chat_messages');
+    }).catch(function () {});
     return m;
   }
 
@@ -2073,7 +2088,9 @@
     if (!m) return { ok: false, msg: 'Message not found' };
     m.deleted = true;
     m.deletedAt = new Date().toISOString();
-    if (dbActive()) DB.deleteChatMessage(uid, m.mid).catch(function () {});
+    if (dbActive()) DB.deleteChatMessage(uid, m.mid).then(function () {
+      _notifyChange('chat_messages');
+    }).catch(function () {});
     return { ok: true };
   }
 
@@ -2161,7 +2178,9 @@
     if (dbActive()) {
       var u = accountByUid(uid);
       if (!u) return { ok: false, msg: 'User not found' };
-      DB.updateUser(uid, { is_admin: !!val }).catch(function (e) {
+      DB.updateUser(uid, { is_admin: !!val }).then(function () {
+        _notifyChange('users');
+      }).catch(function (e) {
         try { if (window.toast) toast('error', 'Failed to update: ' + e.message); } catch (e2) {}
       });
       u.role = val ? 'admin' : undefined;
@@ -2201,7 +2220,9 @@
     if (dbActive()) {
       var u = accountByUid(uid);
       if (!u) return { ok: false, msg: 'User not found' };
-      DB.updateUser(uid, { status: active ? 'active' : 'inactive' }).catch(function (e) {
+      DB.updateUser(uid, { status: active ? 'active' : 'inactive' }).then(function () {
+        _notifyChange('users');
+      }).catch(function (e) {
         try { if (window.toast) toast('error', 'Failed to update: ' + e.message); } catch (e2) {}
       });
       u.status = active ? 'active' : 'inactive';
@@ -2339,6 +2360,8 @@
         phone: String(data.phone || '').slice(0, 40),
         id_front: String(data.idFront || ''),
         id_back: String(data.idBack || '')
+      }).then(function () {
+        _notifyChange('verifications');
       }).catch(function (e) {
         try { if (window.toast) toast('error', 'Save failed: ' + e.message); } catch (e2) {}
       });
@@ -2394,6 +2417,8 @@
       advanced_status: status,
       advanced_note: String(note || '').slice(0, 300),
       advanced_reviewed_at: new Date().toISOString()
+    }).then(function () {
+      _notifyChange('verifications');
     }).catch(function () {});
     return { ok: true };
   }
@@ -2402,7 +2427,9 @@
     if (dbActive()) {
       if (!getVerification(uid)) return { ok: false, msg: 'No verification submission found' };
       if (status !== 'approved' && status !== 'rejected') return { ok: false, msg: 'Invalid status' };
-      DB.updateVerificationStatus(uid, status, { rejection_reason: String(note || '').slice(0, 300) }).catch(function () {});
+      DB.updateVerificationStatus(uid, status, { rejection_reason: String(note || '').slice(0, 300) }).then(function () {
+        _notifyChange('verifications');
+      }).catch(function () {});
       return { ok: true };
     }
     return { ok: false, msg: 'Database not configured' };
@@ -2414,9 +2441,13 @@
       var cur = getVerification(uid);
       if (cur && cur.status === 'approved') return { ok: false, msg: 'Already approved' };
       if (!cur) {
-        DB.submitVerification(uid, { name: '', email: '', idNumber: '', phone: '', id_front: '', id_back: '', status: 'approved' }).catch(function () {});
+        DB.submitVerification(uid, { name: '', email: '', idNumber: '', phone: '', id_front: '', id_back: '', status: 'approved' }).then(function () {
+          _notifyChange('verifications');
+        }).catch(function () {});
       } else {
-        DB.updateVerificationStatus(uid, 'approved', { rejection_reason: '' }).catch(function () {});
+        DB.updateVerificationStatus(uid, 'approved', { rejection_reason: '' }).then(function () {
+          _notifyChange('verifications');
+        }).catch(function () {});
       }
       return { ok: true };
     }

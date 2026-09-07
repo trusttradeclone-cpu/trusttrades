@@ -353,6 +353,8 @@
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustAIOrders', 'trustTxns'], function () { renderAll(); });
     }
+    window.addEventListener('trustsync:ai_orders', function () { renderAll(); });
+    window.addEventListener('trustsync:transactions', function () { renderAll(); });
     document.getElementById('quantTabs').querySelectorAll('.tab-btn').forEach(function (b) {
       b.onclick = function () {
         document.getElementById('quantTabs').querySelectorAll('.tab-btn').forEach(function (x) { x.classList.remove('active'); });

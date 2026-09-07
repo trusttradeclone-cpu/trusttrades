@@ -423,6 +423,7 @@
       if (e.key === 'trustVerifications' || e.key === null) refreshAll();
     });
     window.addEventListener('trustver', refreshFromBlob);
+    window.addEventListener('trustsync:verifications', function () { refreshAll(); });
     // fast verifications channel: re-fetch the blob in memory ~1s so new
     // requests (and their documents) appear instantly, without the 5s poll or
     // any localStorage quota above

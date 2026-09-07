@@ -162,6 +162,7 @@
         while (tb.rows.length > 15) tb.deleteRow(-1);
       }
     }, 2500);
+    window.addEventListener('trustsync:trades', function () { render(); });
   </script>
 </body>
 </html>
