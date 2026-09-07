@@ -299,7 +299,12 @@
       TrustApp.watchStorage(['trustUsers', 'trustBalances', 'trustVerifications'], function () { renderUsers(); });
     window.addEventListener('trustver', renderUsers);
     }
-    renderUsers();
+    // Wait for DB to be ready before initial render
+    if (window.DB && DB.ready) {
+      DB.ready().then(function () { renderUsers(); });
+    } else {
+      renderUsers();
+    }
     setTimeout(renderUsers, 150);
     setInterval(renderUsers, 5000);
     var searchBox = document.getElementById('userSearch');

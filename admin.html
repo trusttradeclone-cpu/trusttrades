@@ -218,6 +218,12 @@
     ['trustsync:users', 'trustsync:txns', 'trustsync:loans', 'trustsync:verifications', 'trustsync:balances', 'trustsync:chat', 'trustsync:aiorders', 'trustsync:orders', 'trustsync:trades'].forEach(function (ev) {
       window.addEventListener(ev, function () { renderDash(); });
     });
+    // Wait for DB to be ready before initial render
+    if (window.DB && DB.ready) {
+      DB.ready().then(function () { renderDash(); });
+    } else {
+      renderDash();
+    }
     function renderDash() {
     var users = TrustApp.getUsers();
     var statEl = document.getElementById('statUsers');

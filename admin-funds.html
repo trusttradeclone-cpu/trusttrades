@@ -285,6 +285,8 @@
       });
     }
     loadMarket(50);
+    // Wait for DB ready after market loads
+    if (window.DB && DB.ready) DB.ready().then(renderAll);
   </script>
 </body>
 </html>

@@ -40,20 +40,33 @@ var TrustDB = (function () {
       this.service = cfg.service || '';
       this.READONLY = !!cfg.readonly;
       this.ENABLED = true;
-      this._bootstrap();
-      // wait for supabase client then start realtime
-      if (typeof window !== 'undefined') {
-        var self = this;
-        function tryStart() {
-          if (window.supabase && window.supabase.channel) {
-            self._startRealtime();
-          } else {
-            setTimeout(tryStart, 100);
+      
+      // Create init promise that resolves when bootstrap + realtime are ready
+      var self = this;
+      this._initPromise = new Promise(function (resolve) {
+        self._bootstrap();
+        // wait for supabase client then start realtime
+        if (typeof window !== 'undefined') {
+          function tryStart() {
+            if (window.supabase && window.supabase.channel) {
+              self._startRealtime();
+              resolve(true);
+            } else {
+              setTimeout(tryStart, 100);
+            }
           }
+          tryStart();
+        } else {
+          resolve(true);
         }
-        tryStart();
-      }
+      });
+      
       return true;
+    },
+
+    // Wait for DB to be fully initialized (bootstrap + realtime)
+    ready: function () {
+      return this._initPromise || Promise.resolve(false);
     },
 
     // Clean up old blob localStorage on first load
@@ -83,6 +96,15 @@ var TrustDB = (function () {
         self.connected = true;
         self.lastSync = Date.now();
         self._notify('ready');
+        // Dispatch trustsync events so pages re-render with loaded data
+        var tables = ['users', 'user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages', 'coin_addresses', 'admin_settings'];
+        tables.forEach(function (t) {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            try {
+              window.dispatchEvent(new window.CustomEvent('trustsync:' + t, { detail: { source: 'bootstrap' } }));
+            } catch (e) {}
+          }
+        });
       }).catch(function (e) {
         console.warn('TrustDB bootstrap failed:', e);
         self.connected = false;

@@ -190,7 +190,12 @@
         }).join('');
       }
     }
-    renderAll();
+    // Wait for DB to be ready before initial render
+    if (window.DB && DB.ready) {
+      DB.ready().then(function () { renderAll(); });
+    } else {
+      renderAll();
+    }
     if (TrustApp.watchStorage) {
       TrustApp.watchStorage(['trustLoans'], function () { renderAll(); });
     }

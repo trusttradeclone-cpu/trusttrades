@@ -410,8 +410,13 @@
 
     TrustApp.initAdminLock();
     if (TrustApp.initAdminTablesMobile) TrustApp.initAdminTablesMobile();
-    refreshAll();
-    refreshFromBlob();
+    // Wait for DB to be ready before initial render
+    if (window.DB && DB.ready) {
+      DB.ready().then(function () { refreshAll(); refreshFromBlob(); });
+    } else {
+      refreshAll();
+      refreshFromBlob();
+    }
     setInterval(refreshAll, 3000);
     window.addEventListener('storage', function (e) {
       if (e.key === 'trustVerifications' || e.key === null) refreshAll();
