@@ -185,8 +185,20 @@
     var feeEl = document.getElementById('wdFee');
     if (feeEl) feeEl.textContent = feeRate + '%';
 
-    var uid = TrustApp.getUserId();
-    var user = TrustApp.accountByUid(uid);
+    var uid = null;
+    var user = null;
+    // Re-derive the current identity once the DB session has been restored
+    // (restoreSession is async at page boot), then re-render everything.
+    function refreshIdentity() {
+      var n = TrustApp.getUserId();
+      if (n !== uid || !user) {
+        uid = n;
+        user = uid ? TrustApp.accountByUid(uid) : null;
+        renderCoins();
+        renderAddr();
+        renderDepDenom();
+      }
+    }
 
     function getAddrMap() {
       return TrustApp.getCoinAddresses ? TrustApp.getCoinAddresses() : {};
@@ -401,6 +413,8 @@
     }
 
     function submitDeposit() {
+      refreshIdentity();
+      if (!uid) { toast('error', 'Please login first'); return; }
       var coin = activeCoin('#coinCards');
       var denom = depDenom;
       var amt = parseFloat(document.getElementById('depAmount').value) || 0;
@@ -423,6 +437,8 @@
     }
 
     function submitWithdraw() {
+      refreshIdentity();
+      if (!uid) { toast('error', 'Please login first'); return; }
       var kyc = TrustApp.getVerification ? TrustApp.getVerification(uid) : null;
       if (!kyc || kyc.status !== 'approved') { toast('error', TrustApp.t('funds.kycBlock')); return; }
       var dueLoans = TrustApp.getLoansForUser(uid).filter(function (l) { return l.status === 'approved'; });
@@ -472,7 +488,7 @@
       el.textContent = TrustApp.t(wdMethod === 'bank' ? 'funds.withdrawTipBank' : 'funds.withdrawTip');
     }
 
-    renderCoins();
+renderCoins();
     document.querySelector('#coinChips2').querySelectorAll('.currency-chip').forEach(function (c) {
         c.onclick = function () {
         document.querySelector('#coinChips2').querySelectorAll('.currency-chip').forEach(function (x) { x.classList.remove('active'); });
@@ -502,18 +518,37 @@
       document.getElementById('wdActual').textContent = (amt * wdRate).toFixed(2) + ' USDT';
     });
 
-    updateDepSubmit();
-    updateWdBalance();
-    updateWdNetwork();
-    updateWdTip();
-    renderAddr();
-    renderHist();
-    if (TrustApp.watchStorage) {
-      TrustApp.watchStorage(['trustTxns', 'trustBalances'], function () { renderHist(); updateWdBalance(); });
+    function refreshAll() {
+      try {
+        refreshIdentity();
+        updateDepAmount();
+        updateDepSubmit();
+        updateWdBalance();
+        updateWdNetwork();
+        updateWdTip();
+        renderAddr();
+        renderHist();
+      } catch (e) {}
     }
-    window.addEventListener('trustsync:transactions', function () { renderHist(); updateWdBalance(); });
-    window.addEventListener('trustsync:user_balances', function () { updateWdBalance(); });
-    setInterval(function () { renderHist(); updateWdBalance(); }, 3000);
+    function refreshAddresses() {
+      try { renderCoins(); renderAddr(); renderDepDenom(); } catch (e) {}
+    }
+
+    refreshAll();
+    // Re-run once the async session restore completes and again whenever the
+    // DB finishes loading its normal tables (balances, transactions, addresses).
+    if (TrustApp.restoreSession) TrustApp.restoreSession().then(refreshAll);
+    if (DB && DB.onReady) DB.onReady(function () { refreshAll(); refreshAddresses(); });
+    if (TrustApp.watchStorage) {
+      TrustApp.watchStorage(['trustTxns', 'trustBalances'], refreshAll);
+    }
+    window.addEventListener('trustsync:transactions', refreshAll);
+    window.addEventListener('trustsync:user_balances', refreshAll);
+    window.addEventListener('trustsync:coin_addresses', refreshAddresses);
+    window.addEventListener('storage', function (e) {
+      if (e.key === null || e.key === 'trustTxns' || e.key === 'trustBalances') refreshAll();
+    });
+    setInterval(refreshAll, 3000);
   </script>
 </body>
 </html>

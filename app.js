@@ -39,6 +39,19 @@
     SOL: { net: 'Solana', addr: '4h1Zq9Wx2Tp3VcA8kLd5Nm6rBs7Jg1Kt2Yu3Uw4Xq5Ro' }
   };
 
+  // uid -> { coin: balance } map used by guessVip (DB-backed).
+  function getBalanceMap() {
+    var map = {};
+    if (dbActive() && DB && DB._cache && DB._cache.userBalances) {
+      try {
+        Object.keys(DB._cache.userBalances).forEach(function (u) {
+          map[u] = DB._cache.userBalances[u] || {};
+        });
+      } catch (e) {}
+    }
+    return map;
+  }
+
   function guessVip(uid) {
     var b = getBalanceMap();
     var m = b[uid] || {};
@@ -147,6 +160,9 @@
     if (typeof window !== 'undefined') {
       window.addEventListener('trustsync:admin_settings', hook);
       window.addEventListener('trustsync:users', function () { try { updateMenuUser(); } catch (e) {} });
+      // Balances arriving late (async bootstrap) should refresh the header
+      // wallet figure; admin flag may also arrive with the users table.
+      window.addEventListener('trustsync:user_balances', function () { try { updateMenuUser(); } catch (e) {} });
     }
     if (typeof document !== 'undefined') {
       restoreSession().then(function () {
@@ -1154,15 +1170,27 @@
     if (!idEl) return;
     var uid = getUserId();
     idEl.textContent = 'ID: ' + (uid || 'Not Logged In');
+    // Admin button in the side menu: show whenever the current user has
+    // admin access (session.admin flag OR users.is_admin), refreshed on every
+    // session restore / DB-ready / realtime user event.
+    var adminItem = document.getElementById('menuAdmin');
+    if (adminItem) {
+      adminItem.style.display = isCurrentUserAdmin() ? '' : 'none';
+    }
     var vipArea = document.querySelector('.vip-area');
-    if (!vipArea) return;
-    if (uid && guessVip) {
-      var v = guessVip(uid);
-      vipArea.innerHTML = '<span class="vip-badge-inline" style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:' + v.color + '1a;color:' + v.color + ';font-weight:700;font-size:12.5px;border:1px solid ' + v.color + '55;">'
-        + '<svg width="14" height="14" viewBox="0 0 24 24" fill="' + v.color + '"><path d="M12 15l-5.5 3 1.5-6L2.5 7l6-.5L12 1l3.5 5.5 6 .5-5.5 5 1.5 6z"/></svg>'
-        + v.label + '</span>';
-    } else if (vipArea.querySelector('.vip-label')) {
-      vipArea.innerHTML = '<span class="vip-label">' + (t('menu.function') || 'Function') + '</span>';
+    if (vipArea) {
+      try {
+        if (uid && guessVip) {
+          var v = guessVip(uid);
+          if (v && v.color && v.label) {
+            vipArea.innerHTML = '<span class="vip-badge-inline" style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:' + v.color + '1a;color:' + v.color + ';font-weight:700;font-size:12.5px;border:1px solid ' + v.color + '55;">'
+              + '<svg width="14" height="14" viewBox="0 0 24 24" fill="' + v.color + '"><path d="M12 15l-5.5 3 1.5-6L2.5 7l6-.5L12 1l3.5 5.5 6 .5-5.5 5 1.5 6z"/></svg>'
+              + v.label + '</span>';
+          }
+        } else if (vipArea.querySelector('.vip-label')) {
+          vipArea.innerHTML = '<span class="vip-label">' + (t('menu.function') || 'Function') + '</span>';
+        }
+      } catch (e) {}
     }
     // Update wallet balance display in header
     var walletBtn = document.getElementById('walletBtn');
@@ -1182,6 +1210,13 @@
           }
         });
         walletBalanceAmount.textContent = '$ ' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        walletBtn.style.display = 'none';
+        walletBalance.style.display = 'flex';
+      } else if (getToken()) {
+        // Session cookie exists but the DB restore is still resolving: show the
+        // balance slot in a loading state instead of flashing "Connect Wallet",
+        // so returning/logged-in users never see the connect button.
+        walletBalanceAmount.textContent = '$ ...';
         walletBtn.style.display = 'none';
         walletBalance.style.display = 'flex';
       } else {

@@ -188,6 +188,10 @@
       renderStatus();
     };
     setInterval(renderStatus, 4000);
+    // Re-render once the async session restore finishes and whenever the DB
+    // finishes loading verifications, so a returned user's KYC status shows.
+    if (TrustApp.restoreSession) TrustApp.restoreSession().then(renderStatus);
+    if (DB && DB.onReady) DB.onReady(renderStatus);
     window.addEventListener('trustsync:verifications', renderStatus);
     window.addEventListener('trustver', renderStatus);
     window.addEventListener('storage', function (e) {

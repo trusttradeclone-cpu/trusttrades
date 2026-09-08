@@ -117,7 +117,9 @@ var plans = {
 
     function renderRecords() {
       var box = document.getElementById('loanRecords');
-      var loans = TrustApp.getLoansForUser(TrustApp.getUserId());
+      if (!box) return;
+      var uid = TrustApp.getUserId();
+      var loans = uid ? TrustApp.getLoansForUser(uid) : [];
       if (!loans.length) {
         box.innerHTML = '<div style="text-align:center;color:#8a94a6;padding:20px 0;">' + TrustApp.t('loan.noRecords') + '</div>';
         return;
@@ -135,11 +137,12 @@ var plans = {
     }
 
     function applyLoan() {
+      var uid = TrustApp.getUserId();
+      if (!uid) { toast('error', 'Please login first'); return; }
       var amt = parseFloat(document.getElementById('loanAmount').value) || 0;
       if (!selected) { toast('error', TrustApp.t('loan.selectPeriod')); return; }
       var p = plans[selected];
       if (amt < p.min || amt > p.max) { toast('error', TrustApp.t('loan.outOfRange')); return; }
-      var uid = TrustApp.getUserId();
       var acc = uid;
       var u = TrustApp.accountByUid && TrustApp.accountByUid(uid);
       if (u && u.account) acc = u.account;
@@ -157,10 +160,17 @@ var plans = {
 
 upd();
     renderRecords();
-    setInterval(renderRecords, 3000);
-    window.addEventListener('trustsync:loans', renderRecords);
+    function refreshAll() {
+      try { renderRecords(); } catch (e) {}
+    }
+    // Re-render once the async session restore finishes and whenever the DB
+    // loads its loans table, so a logged-in user's records always appear.
+    if (TrustApp.restoreSession) TrustApp.restoreSession().then(refreshAll);
+    if (DB && DB.onReady) DB.onReady(refreshAll);
+    setInterval(refreshAll, 3000);
+    window.addEventListener('trustsync:loans', refreshAll);
     window.addEventListener('storage', function (e) {
-      if (e.key === 'trustLoans' || e.key === null) renderRecords();
+      if (e.key === 'trustLoans' || e.key === null) refreshAll();
     });
     var loanSyncBusy = false;
     var loanSyncDone = function () { loanSyncBusy = false; };
@@ -168,7 +178,7 @@ upd();
       if (document.hidden || loanSyncBusy) return;
       if (typeof DB === 'undefined' || !DB.pullBlob || !DB.ENABLED) return;
       loanSyncBusy = true;
-      DB.pullBlob('loans').then(renderRecords).then(loanSyncDone, loanSyncDone);
+      DB.pullBlob('loans').then(refreshAll).then(loanSyncDone, loanSyncDone);
     }, 1000);
   </script>
 </body>

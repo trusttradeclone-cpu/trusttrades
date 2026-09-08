@@ -219,16 +219,13 @@
       renderMarket();
     });
 
-    TrustApp.updateMenuUser();
-    if (TrustApp.applyWalletBtn) TrustApp.applyWalletBtn();
-    if (TrustApp.isCurrentUserAdmin()) {
-      var adminItem = document.getElementById('menuAdmin');
-      if (adminItem) adminItem.style.display = '';
-    }
     if (AppConfig.advancedAuthEnabled) {
       var adv = document.querySelector('.menu-advanced-auth');
       if (adv) adv.style.display = '';
     }
+    // Central UI refresh: header wallet balance, Connect-Wallet visibility,
+    // side-menu admin button. updateMenuUser() handles all of it reactively,
+    // so we just re-invoke it whenever the session/db state changes.
     function renderWalletBalance() {
       if (!TrustApp.isLoggedIn()) return;
       var uid = TrustApp.getUserId();
@@ -246,17 +243,22 @@
       });
       el.textContent = '$ ' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    if (TrustApp.isLoggedIn()) {
-      document.getElementById('walletBtn').style.display = 'none';
-      document.getElementById('walletBalance').style.display = 'flex';
+    function refreshHeaderUI() {
+      if (TrustApp.updateMenuUser) TrustApp.updateMenuUser();
       renderWalletBalance();
-      window.addEventListener('storage', function (e) {
-        if (e.key === 'trustBalances' || e.key === null) renderWalletBalance();
-      });
-      document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) renderWalletBalance();
-      });
     }
+    refreshHeaderUI();
+    // Keep the header + admin button correct once the session restores and
+    // when the DB finishes loading balances / users (all async at page boot).
+    window.addEventListener('trustsync:user_balances', refreshHeaderUI);
+    window.addEventListener('trustsync:users', refreshHeaderUI);
+    window.addEventListener('trustsync:transactions', refreshHeaderUI);
+    window.addEventListener('storage', function (e) {
+      if (e.key === 'trustBalances' || e.key === 'trustTxns' || e.key === null) refreshHeaderUI();
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) refreshHeaderUI();
+    });
   </script>
 </body>
 </html>
