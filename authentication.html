@@ -185,6 +185,18 @@
       });
       if (!res.ok) { toast('error', res.msg); return; }
       toast('success', 'Verification submitted successfully, please wait for review');
+      // Show the "under review" state immediately instead of waiting for the
+      // (slow) DB round-trip to refresh the cache.
+      var box = document.getElementById('verStatus');
+      if (box) {
+        box.className = 'ver-banner ver-pending';
+        box.style.display = 'block';
+        box.innerHTML = '<b>' + t('auth.underReview') + '</b>' + t('auth.pendingText');
+      }
+      var fields = ['vName', 'vEmail', 'vIdNumber', 'vPhone'];
+      fields.forEach(function (id) { var el = document.getElementById(id); if (el) el.disabled = true; });
+      var btn = document.getElementById('vSubmit');
+      if (btn) btn.disabled = true;
       renderStatus();
     };
     setInterval(renderStatus, 4000);

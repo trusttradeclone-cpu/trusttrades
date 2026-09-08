@@ -158,32 +158,30 @@
     function setDep(btn, status) {
       var tr = btn.closest('tr, .admin-row-card');
       var id = tr.getAttribute('data-id');
+      var txn = TrustApp.getTxns().filter(function (t) { return String(t.id) === String(id); })[0];
       if (status === 'confirmed') {
-        var pending = TrustApp.getTxns().filter(function (t) { return t.id === id; })[0];
-        if (pending && !TrustApp.isMarketLive()) { toast('error', 'Live market data not available yet. Deposits are confirmed at the live price only when the live price feed is connected.'); return; }
-        if (pending && !usdValue(pending.coin)) { toast('error', 'No live price for ' + pending.coin + ', cannot confirm'); return; }
-      }
-      var found = TrustApp.setTxnStatus(id, status);
-      if (found && status === 'confirmed') {
-        var usd = (parseFloat(found.amount) || 0) * usdValue(found.coin);
-        TrustApp.addBalance(found.uid, 'USDT', usd);
+        if (!txn) { toast('error', 'Record not found'); renderAll(); return; }
+        if (!TrustApp.isMarketLive()) { toast('error', 'Live market data not available yet. Deposits are confirmed at the live price only when the live price feed is connected.'); renderAll(); return; }
+        if (!usdValue(txn.coin)) { toast('error', 'No live price for ' + txn.coin + ', cannot confirm'); renderAll(); return; }
+        TrustApp.setTxnStatus(id, status);
+        var usd = (parseFloat(txn.amount) || 0) * usdValue(txn.coin);
         toast('success', 'Deposit confirmed: credited ' + fmtAmt(usd, 'USDT') + ' USDT');
-      } else if (found) {
-        toast('info', 'Deposit ' + (status === 'confirmed' ? 'confirmed' : 'rejected'));
       } else {
-        toast('error', 'Record not found');
+        TrustApp.setTxnStatus(id, status);
+        toast('info', 'Deposit rejected');
       }
       renderAll();
     }
     function setWd(btn, status) {
       var tr = btn.closest('tr, .admin-row-card');
       var id = tr.getAttribute('data-id');
-      var found = TrustApp.setTxnStatus(id, status);
-      if (found && status === 'confirmed') {
-        var bal = TrustApp.getBalance(found.uid, found.coin);
-        if (bal < (parseFloat(found.amount) || 0)) { toast('error', 'Insufficient ' + found.coin + ' balance (has ' + fmtAmt(bal, found.coin) + ')'); renderAll(); return; }
-        TrustApp.addBalance(found.uid, found.coin, -found.amount);
+      var txn = TrustApp.getTxns().filter(function (t) { return String(t.id) === String(id); })[0];
+      if (status === 'confirmed') {
+        if (!txn) { toast('error', 'Record not found'); renderAll(); return; }
+        var bal = TrustApp.getBalance(txn.uid, txn.coin);
+        if (bal < (parseFloat(txn.amount) || 0)) { toast('error', 'Insufficient ' + txn.coin + ' balance (has ' + fmtAmt(bal, txn.coin) + ')'); renderAll(); return; }
       }
+      TrustApp.setTxnStatus(id, status);
       toast(status === 'confirmed' ? 'success' : 'error', 'Withdrawal ' + (status === 'confirmed' ? 'approved' : 'rejected'));
       renderAll();
     }

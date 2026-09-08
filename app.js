@@ -1420,7 +1420,9 @@
       amount: parseFloat(t.amount) || 0,
       status: t.status || 'completed',
       note: desc.replace(/^\[(debit|credit)\]\s*/, ''),
-      proof: '',
+      proof: t.proof || '',
+      proof_name: t.proof_name || t.proofName || '',
+      proofName: t.proof_name || t.proofName || '',
       createdAt: t.created_at,
       created_at: t.created_at,
       dir: dir,
@@ -1781,7 +1783,9 @@ function addTxn(obj) {
       note: obj.note || '',
       proof: obj.proof || '',
       proofName: obj.proofName || '',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      db: false,
+      dbId: null
     };
     _pendingTxns[t.id] = t;
     if (dbActive()) {
@@ -1795,10 +1799,14 @@ function addTxn(obj) {
         amount: Math.abs(parseFloat(obj.amount) || 0),
         status: obj.status || 'pending',
         reference_id: '',
-        description: desc
+        description: desc,
+        proof: obj.proof || '',
+        proof_name: obj.proofName || ''
       }).then(function (row) {
         if (row && row.id) {
           _txnIdMap[t.id] = row.id;
+          t.db = true;
+          t.dbId = row.id;
         }
         _notifyChange('transactions');
 }).catch(function () {});
@@ -1806,32 +1814,55 @@ function addTxn(obj) {
     return t;
   }
 
+  function usdValue(coin) {
+    if (coin === 'USDT' || coin === 'USDC' || coin === 'TUSD') return 1;
+    try {
+      var d = typeof findCoin === 'function' ? findCoin(coin) : null;
+      return d ? (parseFloat(d.price) || 0) : 0;
+    } catch (e) { return 0; }
+  }
+
   function setTxnStatus(id, status) {
-    if (dbActive()) {
-      var txns = getTxns();
-      var txn = txns.find(function (t) { return t.id === id; });
-      var realId = id;
-      // Check pending local map first (for immediate confirm before DB sync)
-      if (!txn && _pendingTxns[id]) {
-        txn = _pendingTxns[id];
-      }
-      // Fallback: if not found by ID, look up real ID from map
-      if (!txn && _txnIdMap[id]) {
-        realId = _txnIdMap[id];
-        txn = txns.find(function (t) { return t.id === realId; });
-      }
-      return DB.setTransactionStatus(realId, status).then(function () {
-        _notifyChange('transactions');
-        if (status === 'confirmed' && txn) {
-          var delta = txn.type === 'deposit' ? txn.amount : -txn.amount;
-          if (txn.type === 'deposit' || txn.type === 'withdraw') {
-            return addBalance(txn.uid, txn.coin, delta);
-          }
-        }
-        return { id: id, status: status };
-      }).catch(function () { return { id: id, status: status }; });
+    var txns = getTxns();
+    var txn = txns.find(function (t) { return String(t.id) === String(id); });
+    var local = txn || _pendingTxns[id] || null;
+    if (!txn && _txnIdMap[id]) {
+      var realId = _txnIdMap[id];
+      txn = txns.find(function (t) { return String(t.id) === String(realId); }) || txn;
     }
-    return { id: id, status: status };
+    if (!txn && local) txn = local;
+    var wasConfirmed = txn ? txn.status === 'confirmed' : false;
+    var out = {
+      id: id,
+      status: status,
+      uid: txn ? txn.uid : null,
+      coin: txn ? txn.coin : 'USDT',
+      amount: txn ? txn.amount : 0,
+      type: txn ? txn.type : 'deposit'
+    };
+    function finish() {
+      if (local) local.status = status;
+      _notifyChange('transactions');
+      // All crediting/debiting happens here (single source of truth), so admin
+      // pages never need to call addBalance after confirming.
+      if (status === 'confirmed' && txn && txn.uid != null && !wasConfirmed) {
+        var p = null;
+        try {
+          if (txn.type === 'deposit') {
+            p = addBalance(txn.uid, 'USDT', (parseFloat(txn.amount) || 0) * usdValue(txn.coin));
+          } else if (txn.type === 'withdraw') {
+            p = addBalance(txn.uid, txn.coin, -(parseFloat(txn.amount) || 0));
+          }
+        } catch (e) { p = null; }
+        if (p) return Promise.resolve(p).then(function () { return out; }).catch(function () { return out; });
+      }
+      return out;
+    }
+    if (dbActive()) {
+      var dbId = txn && txn.db ? id : ((txn && txn.dbId) || _txnIdMap[id] || id);
+      return DB.setTransactionStatus(dbId, status).then(finish).catch(function () { return out; });
+    }
+    return finish();
   }
 
   var LOAN_KEY = 'trustLoans';
@@ -1872,13 +1903,20 @@ function addTxn(obj) {
   }
 
   function setLoanStatus(id, status) {
-    if (dbActive()) {
-      DB.updateLoanStatus(id, status).then(function () {
-        _notifyChange('loans');
-      }).catch(function () {});
-      return { id: id, status: status };
+    var out = { id: id, status: status, uid: null, amount: 0 };
+    var list = getLoans();
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].id) === String(id)) {
+        list[i].status = status;
+        out.uid = list[i].uid;
+        out.amount = parseFloat(list[i].amount) || 0;
+      }
     }
-    return { id: id, status: status };
+    function done() { _notifyChange('loans'); return out; }
+    if (dbActive()) {
+      DB.updateLoanStatus(id, status).then(done).catch(function () {});
+    }
+    return done();
   }
 
   function getTrades() {

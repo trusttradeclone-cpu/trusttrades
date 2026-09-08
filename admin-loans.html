@@ -148,8 +148,14 @@
     function setLoan(btn, status) {
       var tr = btn.closest('tr, .admin-row-card');
       var id = tr.getAttribute('data-id');
+      var loan = null;
+      TrustApp.getLoans().forEach(function (l) { if (String(l.id) === String(id)) loan = l; });
+      if (!loan) { toast('error', 'Loan not found'); renderAll(); return; }
+      var wasPending = loan.status === 'pending';
       var found = TrustApp.setLoanStatus(id, status);
-      if (found && status === 'approved') TrustApp.addBalance(found.uid, 'USDT', found.amount);
+      if (found && status === 'approved' && wasPending && loan.uid != null && (parseFloat(loan.amount) || 0) > 0) {
+        TrustApp.addBalance(loan.uid, 'USDT', parseFloat(loan.amount));
+      }
       toast(status === 'approved' ? 'success' : 'error', 'Loan ' + (status === 'approved' ? 'approved' : 'rejected'));
       renderAll();
     }

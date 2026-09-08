@@ -478,7 +478,18 @@ var TrustDB = (function () {
         var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
         converted[snake] = payload[k];
       }
-      return this.q('transactions', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; });
+      var self = this;
+      return this.q('transactions', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; })
+        .catch(function (err) {
+          // Tolerate tables that predate the proof/proof_name columns (install a
+          // column, not break the deposit): retry without the image columns.
+          if (converted.proof !== undefined || converted.proof_name !== undefined) {
+            var slim = {};
+            for (var k in converted) if (k !== 'proof' && k !== 'proof_name') slim[k] = converted[k];
+            return self.q('transactions', { method: 'POST', body: slim }).then(function (rows) { return rows[0]; });
+          }
+          throw err;
+        });
     },
     setTransactionStatus: function (id, status) {
       return this.q('transactions?id=eq.' + id, { method: 'PATCH', body: { status: status } });
