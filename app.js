@@ -2052,6 +2052,8 @@ function addTxn(obj) {
       var payload = {
         uid: o.uid,
         account: o.account || null,
+        symbol: 'AIQUANT',
+        side: 'BUY',
         product: o.product,
         period: o.period,
         rate_min: o.rateMin,
