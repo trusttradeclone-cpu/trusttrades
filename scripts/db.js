@@ -116,7 +116,14 @@ var TrustDB = (function () {
     // Generic table loader
     _loadTable: function (table, keyField) {
       var self = this;
+      self._loadSeq = self._loadSeq || {};
+      var mySeq = (self._loadSeq[table] || 0) + 1;
+      self._loadSeq[table] = mySeq;
       return this.q(table + '?select=*&order=' + keyField + '.asc', {}).then(function (rows) {
+        // Discard stale responses: when a newer pull for the same table started
+        // before this one resolved, applying this older snapshot to the cache
+        // would make data briefly disappear (e.g. chat messages flickering).
+        if (self._loadSeq[table] !== mySeq) return rows.length;
         var cache = self._cache[table === 'user_balances' ? 'userBalances' :
                       table === 'coin_addresses' ? 'coinAddresses' :
                       table === 'admin_settings' ? 'adminSettings' :
