@@ -388,7 +388,7 @@
     }
 
     function renderHist() {
-      var list = TrustApp.getTxns().filter(function (t) { return t.uid === uid; });
+      var list = TrustApp.getTxns().filter(function (t) { return String(t.uid) === String(uid); });
       var stTxt = { pending: TrustApp.t('funds.statusPending'), confirmed: TrustApp.t('funds.statusApproved'), rejected: TrustApp.t('funds.statusRejected') };
       var stCls = { pending: 0, confirmed: 1, rejected: 2 };
       function recs(boxId, types) {

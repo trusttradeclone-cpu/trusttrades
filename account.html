@@ -179,6 +179,11 @@
 
     renderBalances();
 
+    // re-render once the async session restore resolves (uid is unknown until
+    // then) and again when the DB finishes loading its tables.
+    if (TrustApp.restoreSession) TrustApp.restoreSession().then(scheduleRender);
+    if (window.DB && DB.onReady) DB.onReady(scheduleRender);
+
     // Real-time updates via trustsync
     window.addEventListener('trustsync:user_balances', scheduleRender);
     window.addEventListener('trustsync:transactions', scheduleRender);

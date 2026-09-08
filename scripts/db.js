@@ -351,7 +351,7 @@ var TrustDB = (function () {
 
     // Users
     getUsers: function () { return this._cache.users.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },
-    getUser: function (uid) { return this._cache.users.find(function (u) { return u.uid === uid; }); },
+    getUser: function (uid) { return this._cache.users.find(function (u) { return String(u.uid) === String(uid); }); },
     getUserByReferralCode: function (code) { return this._cache.users.find(function (u) { return u.referral_code === code; }); },
     createUser: function (account, passwordHash, extra) {
       var self = this;
@@ -386,11 +386,21 @@ var TrustDB = (function () {
     },
 
     // Balances
+    // Live rows store uid as BIGINT (number); the UI often queries with a
+    // string, so match either numeric form.
+    _balanceMap: function (uid) {
+      var b = this._cache.userBalances;
+      if (b) {
+        var m = b[uid] || b[String(uid)] || b[Number(uid)] || null;
+        if (m) return m;
+      }
+      return null;
+    },
     getBalance: function (uid, coin) {
-      var b = this._cache.userBalances[uid];
+      var b = this._balanceMap(uid);
       return b ? (parseFloat(b[coin]) || 0) : 0;
     },
-    getAllBalances: function (uid) { return this._cache.userBalances[uid] || {}; },
+    getAllBalances: function (uid) { return this._balanceMap(uid) || {}; },
     addBalance: function (uid, coin, delta) {
       var self = this;
       var current = self.getBalance(uid, coin);
@@ -404,7 +414,7 @@ var TrustDB = (function () {
     },
 
     // Verifications
-    getVerification: function (uid) { return this._cache.verifications[uid] || null; },
+    getVerification: function (uid) { return this._cache.verifications[uid] || this._cache.verifications[String(uid)] || this._cache.verifications[Number(uid)] || null; },
     getAllVerifications: function () { return Object.values(this._cache.verifications); },
     submitVerification: function (uid, data) {
       var payload = Object.assign({ uid: uid }, data, { status: data.status || 'pending', submitted_at: new Date().toISOString() });
@@ -443,7 +453,7 @@ var TrustDB = (function () {
 
     // Loans
     getLoans: function () { return this._cache.loans.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },
-    getLoansForUser: function (uid) { return this._cache.loans.filter(function (l) { return l.uid === uid; }); },
+    getLoansForUser: function (uid) { return this._cache.loans.filter(function (l) { return String(l.uid) === String(uid); }); },
     getLoan: function (id) { return this._cache.loans.find(function (l) { return l.id === id; }); },
     addLoan: function (data) {
       var payload = Object.assign({}, data, { status: 'pending', created_at: new Date().toISOString() });
@@ -456,6 +466,7 @@ var TrustDB = (function () {
       return this.q('loans', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; });
     },
     updateLoanStatus: function (id, status, extra) {
+      var self = this;
       var patch = Object.assign({ status: status }, extra || {});
       if (status === 'approved') patch.approved_at = new Date().toISOString();
       if (status === 'repaid') patch.repaid_at = new Date().toISOString();
@@ -464,12 +475,30 @@ var TrustDB = (function () {
         var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
         converted[snake] = patch[k];
       }
-      return this.q('loans?id=eq.' + id, { method: 'PATCH', body: converted });
+      return this.q('loans?id=eq.' + id, { method: 'PATCH', body: converted }).catch(function (err) {
+        // Pre-migration fallback: some live loans tables have a BEFORE UPDATE
+        // trigger that writes NEW.updated_at although the column does not exist
+        // (PostgREST 400 / 42703), and INSERT/DELETE are still allowed. Re-create
+        // the row with the new status instead of failing the admin action.
+        var existing = self.getLoan(id);
+        if (!existing) throw err;
+        var payload = {};
+        for (var pk in existing) {
+          if (pk === 'id' || existing[pk] === undefined) continue;
+          var sk = pk.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+          payload[sk] = existing[pk];
+        }
+        for (var ck in converted) payload[ck] = converted[ck];
+        payload.id = String(id);
+        return self.q('loans?id=eq.' + String(id), { method: 'DELETE' }).then(function () {
+          return self.q('loans', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+        });
+      });
     },
 
     // Transactions
     getTransactions: function () { return this._cache.transactions.slice(); },
-    getTransactionsForUser: function (uid) { return this._cache.transactions.filter(function (t) { return t.uid === uid; }); },
+    getTransactionsForUser: function (uid) { return this._cache.transactions.filter(function (t) { return String(t.uid) === String(uid); }); },
     addTransaction: function (data) {
       var payload = Object.assign({}, data, { created_at: new Date().toISOString() });
       // Convert camelCase to snake_case for database
@@ -497,7 +526,7 @@ var TrustDB = (function () {
 
     // Trades
     getTrades: function () { return this._cache.trades.slice().sort(function (a, b) { return (b.opened_at || 0) - (a.opened_at || 0); }); },
-    getTradesForUser: function (uid) { return this._cache.trades.filter(function (t) { return t.uid === uid; }); },
+    getTradesForUser: function (uid) { return this._cache.trades.filter(function (t) { return String(t.uid) === String(uid); }); },
 
     // AI Orders
     getAIOrders: function () { return this._cache.aiOrders.slice().sort(function (a, b) { return (b.created_at || 0) - (a.created_at || 0); }); },

@@ -278,7 +278,7 @@
       return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
     }
     function myOrders() {
-      return (TrustApp.getAIOrders ? TrustApp.getAIOrders() : []).filter(function (o) { return o.uid === uid; });
+      return (TrustApp.getAIOrders ? TrustApp.getAIOrders() : []).filter(function (o) { return String(o.uid) === String(uid); });
     }
     function findOrder(id) {
       var list = myOrders();

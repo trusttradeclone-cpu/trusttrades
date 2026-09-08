@@ -1889,7 +1889,7 @@ function addTxn(obj) {
 
   function getLoansForUser(uid) {
     if (!uid) return [];
-    return getLoans().filter(function (l) { return l.uid === uid; });
+    return getLoans().filter(function (l) { return String(l.uid) === String(uid); });
   }
 
   function addLoan(obj) {
@@ -2325,7 +2325,7 @@ function addTxn(obj) {
     }
     var users = getUsers();
     for (var i = 0; i < users.length; i++) {
-      if (users[i].uid === uid) {
+      if (String(users[i].uid) === String(uid)) {
         if (val) { users[i].role = 'admin'; users[i].isAdmin = true; }
         else { delete users[i].role; delete users[i].isAdmin; }
         saveUsers(users);
@@ -2365,7 +2365,7 @@ function addTxn(obj) {
     }
     var users = getUsers();
     for (var i = 0; i < users.length; i++) {
-      if (users[i].uid === uid) {
+      if (String(users[i].uid) === String(uid)) {
         users[i].status = active ? 'active' : 'inactive';
         saveUsers(users);
         return { ok: true, user: users[i] };
