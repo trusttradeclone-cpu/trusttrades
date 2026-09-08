@@ -511,10 +511,15 @@ var TrustDB = (function () {
       return this.q('transactions', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; })
         .catch(function (err) {
           // Tolerate tables that predate the proof/proof_name columns (install a
-          // column, not break the deposit): retry without the image columns.
+          // column, not break the deposit): retry without the image columns. The
+          // attachment is stashed inside description so it is never lost and can
+          // be surfaced by dbTxnToApp even before the migration adds columns.
           if (converted.proof !== undefined || converted.proof_name !== undefined) {
             var slim = {};
             for (var k in converted) if (k !== 'proof' && k !== 'proof_name') slim[k] = converted[k];
+            if (converted.proof) {
+              slim.description = (slim.description || '') + '\n' + '[PROOF_ATTACHMENT]' + JSON.stringify({ name: converted.proof_name || 'proof', data: converted.proof });
+            }
             return self.q('transactions', { method: 'POST', body: slim }).then(function (rows) { return rows[0]; });
           }
           throw err;

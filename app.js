@@ -1423,6 +1423,17 @@
         if (u) acct = u.account || '';
       }
     } catch (e) {}
+    var note = desc.replace(/^\[(debit|credit)\]\s*/, '');
+    var proof = t.proof || '';
+    var proofName = t.proof_name || t.proofName || '';
+    var am = /\[PROOF_ATTACHMENT\]([\s\S]*)$/.exec(note);
+    if (!proof && am) {
+      note = note.slice(0, am.index);
+      try {
+        var att = JSON.parse(am[1]);
+        if (att && att.data) { proof = att.data; proofName = att.name || 'proof'; }
+      } catch (e) {}
+    }
     return {
       id: String(t.id),
       uid: t.uid,
@@ -1431,10 +1442,10 @@
       coin: t.coin || 'USDT',
       amount: parseFloat(t.amount) || 0,
       status: t.status || 'completed',
-      note: desc.replace(/^\[(debit|credit)\]\s*/, ''),
-      proof: t.proof || '',
-      proof_name: t.proof_name || t.proofName || '',
-      proofName: t.proof_name || t.proofName || '',
+      note: note,
+      proof: proof,
+      proof_name: proofName,
+      proofName: proofName,
       createdAt: t.created_at,
       created_at: t.created_at,
       dir: dir,
