@@ -134,14 +134,7 @@
       return (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: coin === 'BTC' || coin === 'ETH' ? 4 : 2, maximumFractionDigits: coin === 'BTC' || coin === 'ETH' ? 4 : 2 });
     }
 
-    var users = TrustApp.getUsers();
     var uSel = document.getElementById('adjUser');
-    users.forEach(function (u) {
-      var o = document.createElement('option');
-      o.value = u.uid;
-      o.textContent = u.account + ' (' + u.uid + ')';
-      uSel.appendChild(o);
-    });
     var cSel = document.getElementById('adjCoin');
     COINS.forEach(function (c) {
       var o = document.createElement('option');
@@ -150,8 +143,33 @@
       cSel.appendChild(o);
     });
 
-    var q = new URLSearchParams(location.search);
-    if (q.get('u')) uSel.value = q.get('u');
+    var _userSig = '';
+    function userSig() {
+      return TrustApp.getUsers().map(function (u) { return u.uid + ':' + u.account; }).join('|');
+    }
+    function fillUsers() {
+      var sel = document.getElementById('adjUser');
+      if (!sel) return;
+      // The DB may still be connecting at page parse; only repaint the list
+      // when the user set actually changes so the admin selection is kept.
+      var sig = userSig();
+      if (sig === _userSig) return;
+      _userSig = sig;
+      var users = TrustApp.getUsers();
+      var prev = sel.value;
+      sel.innerHTML = '';
+      users.forEach(function (u) {
+        var o = document.createElement('option');
+        o.value = u.uid;
+        o.textContent = u.account + ' (' + u.uid + ')';
+        sel.appendChild(o);
+      });
+      if (prev && users.some(function (u) { return String(u.uid) === String(prev); })) sel.value = prev;
+      var q = new URLSearchParams(location.search);
+      if (!sel.value && q.get('u')) sel.value = q.get('u');
+      try { refreshBal(); } catch (e) {}
+    }
+    fillUsers();
 
     var dir = 'credit';
     function setDir(d) {
@@ -172,7 +190,7 @@
     function renderHist() {
       var box = document.getElementById('adjRows');
       var list = TrustApp.getTxns().filter(function (t) { return t.type === 'adjust'; }).slice(0, 30);
-      document.getElementById('chipUsers').textContent = users.length + ' users';
+      document.getElementById('chipUsers').textContent = TrustApp.getUsers().length + ' users';
       document.getElementById('chipAdjust').textContent = list.length + ' adjustments';
       document.getElementById('hmAdjust').textContent = list.length;
       if (!list.length) {
@@ -211,9 +229,14 @@
     renderHist();
     // Remove auto-refresh that changes user selection - only refresh balance/history
     setInterval(function () {
+      fillUsers();
       refreshBal();
       renderHist();
     }, 5000);
+    // The DB may not be ready when this page's script parses; populate the
+    // user dropdown as soon as the session/DB settle.
+    if (TrustApp.restoreSession) TrustApp.restoreSession().then(fillUsers);
+    if (window.DB && DB.onReady) DB.onReady(fillUsers);
     window.addEventListener('storage', function (e) {
       if (e.key === null || e.key === 'trustUsers' || e.key === 'trustTxns') location.reload();
       if (e.key === 'trustBalances') { try { refreshBal(); renderHist(); } catch (er) {} }
@@ -222,7 +245,7 @@
       if (DB && DB.pullBlob) DB.pullBlob('balances').then(function () { try { refreshBal(); renderHist(); } catch (e) {} });
     });
     window.addEventListener('trustsync:users', function () {
-      if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { try { refreshBal(); renderHist(); } catch (e) {} });
+      if (DB && DB.pullBlob) DB.pullBlob('users').then(function () { try { fillUsers(); refreshBal(); renderHist(); } catch (e) {} });
     });
   </script>
 </body>
