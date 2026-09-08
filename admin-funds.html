@@ -147,6 +147,13 @@
       var d = TrustApp.findCoin ? TrustApp.findCoin(coin) : null;
       return d ? (parseFloat(d.price) || 0) : 0;
     }
+    function byNew(a, b) {
+      var ta = a.createdAt || a.created_at || '', tb = b.createdAt || b.created_at || '';
+      if (ta && tb && ta !== tb) return ta < tb ? 1 : -1;
+      var ia = parseFloat(a.id) || 0, ib = parseFloat(b.id) || 0;
+      if (ia !== ib) return ia > ib ? -1 : 1;
+      return 0;
+    }
     function badgeFor(t) {
       if (t.status === 'confirmed') return '<span class="badge green">Confirmed</span>';
       if (t.status === 'rejected') return '<span class="badge red">Rejected</span>';
@@ -187,8 +194,8 @@
     }
     function renderAll() {
       var txns = TrustApp.getTxns();
-      var deps = txns.filter(function (t) { return t.type === 'deposit' || t.type === 'referral_bonus'; }).slice(0, 20);
-      var wds = txns.filter(function (t) { return t.type === 'withdraw' && t.status === 'pending'; });
+      var deps = txns.filter(function (t) { return t.type === 'deposit' || t.type === 'referral_bonus'; }).sort(byNew).slice(0, 20);
+      var wds = txns.filter(function (t) { return t.type === 'withdraw' && t.status === 'pending'; }).sort(byNew);
       var depPending = txns.filter(function (t) { return t.type === 'deposit' && t.status === 'pending'; }).length;
       var depConfirmed = txns.filter(function (t) { return t.type === 'deposit' && t.status === 'confirmed'; }).length;
       var wdApproved = txns.filter(function (t) { return t.type === 'withdraw' && t.status === 'confirmed'; }).length;

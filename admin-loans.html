@@ -175,8 +175,15 @@
       document.getElementById('chipApproved').textContent = approved + ' approved';
       document.getElementById('chipValue').textContent = fmtMoney(value) + ' approved';
     }
+    function byNew(a, b) {
+      var ta = a.createdAt || a.created_at || '', tb = b.createdAt || b.created_at || '';
+      if (ta && tb && ta !== tb) return ta < tb ? 1 : -1;
+      var ia = parseFloat(a.id) || 0, ib = parseFloat(b.id) || 0;
+      if (ia !== ib) return ia > ib ? -1 : 1;
+      return 0;
+    }
     function renderAll() {
-      var loans = TrustApp.getLoans();
+      var loans = TrustApp.getLoans().slice().sort(byNew);
       renderStats();
       var pend = loans.filter(function (l) { return l.status === 'pending'; });
       var pendBox = document.getElementById('pendingRows');

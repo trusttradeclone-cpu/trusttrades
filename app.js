@@ -1516,14 +1516,28 @@
   }
 
   function dbChatToApp(m) {
+    var atts = null;
+    if (m.attachments) {
+      try { atts = typeof m.attachments === 'string' ? JSON.parse(m.attachments) : m.attachments; } catch (e) { atts = null; }
+    }
+    var text = m.message || '';
+    if (!atts && /\[CHAT_ATTACHMENTS\]/.test(text)) {
+      var i = text.indexOf('[CHAT_ATTACHMENTS]');
+      try {
+        var a = JSON.parse(text.slice(i + '[CHAT_ATTACHMENTS]'.length));
+        if (Array.isArray(a)) atts = a;
+        text = text.slice(0, i).replace(/\n+$/, '');
+      } catch (e) {}
+    }
     return {
       mid: String(m.id),
       from: m.from_role === 'admin' ? 'admin' : 'user',
-      text: m.message || '',
+      text: text,
       at: m.created_at,
       seen: !!m.read_at,
       deleted: !!m.deleted,
-      editedAt: m.edited_at || null
+      editedAt: m.edited_at || null,
+      attachments: atts || []
     };
   }
 
@@ -2204,7 +2218,8 @@ function addTxn(obj) {
     };
     if (attachments && attachments.length) msg.attachments = attachments.slice(0, 6);
     if (dbActive()) {
-      DB.sendChatMessage(uid, msg.from, msg.text).then(function (row) {
+      var extra = msg.attachments ? { attachments: msg.attachments } : null;
+      DB.sendChatMessage(uid, msg.from, msg.text, extra).then(function (row) {
         if (row && row.id) msg.mid = String(row.id);
         _notifyChange('chat_messages');
       }).catch(function () {});

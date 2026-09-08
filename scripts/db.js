@@ -540,6 +540,7 @@ var TrustDB = (function () {
     getChat: function (uid) { return (this._cache.chatMessages[uid] || []).slice().sort(function (a, b) { return (a.created_at || 0) - (b.created_at || 0); }); },
     getChatUsers: function () { return Object.keys(this._cache.chatMessages).map(function (k) { return parseInt(k, 10); }); },
     sendChatMessage: function (uid, fromRole, message, extra) {
+      var self = this;
       var payload = { uid: uid, from_role: fromRole, message: message, created_at: new Date().toISOString() };
       for (var k in (extra || {})) if (extra[k] !== undefined) payload[k] = extra[k];
       var converted = {};
@@ -547,7 +548,19 @@ var TrustDB = (function () {
         var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
         converted[snake] = payload[k];
       }
-      return this.q('chat_messages', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; });
+      return this.q('chat_messages', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; })
+        .catch(function (err) {
+          // Tables that predate the attachments column (migration
+          // fix_chat_attachments.sql): keep the message but stash the
+          // attachments inside message so dbChatToApp can recover them.
+          if (converted.attachments !== undefined) {
+            var slim = {};
+            for (var k in converted) if (k !== 'attachments') slim[k] = converted[k];
+            slim.message = String(slim.message || '') + '\n' + '[CHAT_ATTACHMENTS]' + JSON.stringify(converted.attachments);
+            return self.q('chat_messages', { method: 'POST', body: slim }).then(function (rows) { return rows[0]; });
+          }
+          throw err;
+        });
     },
     markChatRead: function (uid) {
       var msgs = this._cache.chatMessages[uid];

@@ -213,6 +213,8 @@
         if (la && lb) return (lb.at || '').localeCompare(la.at || '');
         if (la) return -1;
         if (lb) return 1;
+        var ca = seen[a].createdAt || '', cb = seen[b].createdAt || '';
+        if (ca && cb && ca !== cb) return cb.localeCompare(ca);
         return (seen[a].account || '').localeCompare(seen[b].account || '');
       });
       if (currentUid === null || !seen[currentUid]) currentUid = ids[0];
