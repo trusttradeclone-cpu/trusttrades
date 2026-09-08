@@ -408,7 +408,13 @@ var TrustDB = (function () {
     getAllVerifications: function () { return Object.values(this._cache.verifications); },
     submitVerification: function (uid, data) {
       var payload = Object.assign({ uid: uid }, data, { status: data.status || 'pending', submitted_at: new Date().toISOString() });
-      return this.q('verifications', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+      // Convert camelCase to snake_case for database
+      var converted = {};
+      for (var k in payload) {
+        var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+        converted[snake] = payload[k];
+      }
+      return this.q('verifications', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; });
     },
 
     // Ensure local cache reflects a verification row (after admin actions)
@@ -418,11 +424,21 @@ var TrustDB = (function () {
     },
     updateVerificationStatus: function (uid, status, extra) {
       var patch = Object.assign({ status: status, reviewed_at: new Date().toISOString() }, extra || {});
-      return this.q('verifications?uid=eq.' + uid, { method: 'PATCH', body: patch });
+      var converted = {};
+      for (var k in patch) {
+        var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+        converted[snake] = patch[k];
+      }
+      return this.q('verifications?uid=eq.' + uid, { method: 'PATCH', body: converted });
     },
     updateVerificationAdvanced: function (uid, fields) {
       var patch = Object.assign({}, fields || {});
-      return this.q('verifications?uid=eq.' + uid, { method: 'PATCH', body: patch });
+      var converted = {};
+      for (var k in patch) {
+        var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+        converted[snake] = patch[k];
+      }
+      return this.q('verifications?uid=eq.' + uid, { method: 'PATCH', body: converted });
     },
 
     // Loans
@@ -431,13 +447,24 @@ var TrustDB = (function () {
     getLoan: function (id) { return this._cache.loans.find(function (l) { return l.id === id; }); },
     addLoan: function (data) {
       var payload = Object.assign({}, data, { status: 'pending', created_at: new Date().toISOString() });
-      return this.q('loans', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+      if (!payload.id) payload.id = 'LOAN_' + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1000);
+      var converted = {};
+      for (var k in payload) {
+        var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+        converted[snake] = payload[k];
+      }
+      return this.q('loans', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; });
     },
     updateLoanStatus: function (id, status, extra) {
       var patch = Object.assign({ status: status }, extra || {});
       if (status === 'approved') patch.approved_at = new Date().toISOString();
       if (status === 'repaid') patch.repaid_at = new Date().toISOString();
-      return this.q('loans?id=eq.' + id, { method: 'PATCH', body: patch });
+      var converted = {};
+      for (var k in patch) {
+        var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+        converted[snake] = patch[k];
+      }
+      return this.q('loans?id=eq.' + id, { method: 'PATCH', body: converted });
     },
 
     // Transactions
@@ -445,7 +472,13 @@ var TrustDB = (function () {
     getTransactionsForUser: function (uid) { return this._cache.transactions.filter(function (t) { return t.uid === uid; }); },
     addTransaction: function (data) {
       var payload = Object.assign({}, data, { created_at: new Date().toISOString() });
-      return this.q('transactions', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+      // Convert camelCase to snake_case for database
+      var converted = {};
+      for (var k in payload) {
+        var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+        converted[snake] = payload[k];
+      }
+      return this.q('transactions', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; });
     },
     setTransactionStatus: function (id, status) {
       return this.q('transactions?id=eq.' + id, { method: 'PATCH', body: { status: status } });
@@ -464,7 +497,12 @@ var TrustDB = (function () {
     sendChatMessage: function (uid, fromRole, message, extra) {
       var payload = { uid: uid, from_role: fromRole, message: message, created_at: new Date().toISOString() };
       for (var k in (extra || {})) if (extra[k] !== undefined) payload[k] = extra[k];
-      return this.q('chat_messages', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
+      var converted = {};
+      for (var k in payload) {
+        var snake = k.replace(/([A-Z])/g, function (m) { return '_' + m.toLowerCase(); });
+        converted[snake] = payload[k];
+      }
+      return this.q('chat_messages', { method: 'POST', body: converted }).then(function (rows) { return rows[0]; });
     },
     markChatRead: function (uid) {
       var msgs = this._cache.chatMessages[uid];
