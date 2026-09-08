@@ -220,7 +220,7 @@
       if (currentUid === null || !seen[currentUid]) currentUid = ids[0];
       box.innerHTML = ids.map(function (uid) {
         var last = lastMsg(uid);
-        var prev = last ? esc(last.text.slice(0, 40)) : 'No messages yet';
+        var prev = last ? esc((last.text || (TrustApp.attLabel ? TrustApp.attLabel(last.attachments) : '') || '').slice(0, 40)) : 'No messages yet';
         var active = uid === currentUid ? ' active' : '';
         var unread = unreadCount(uid);
         var unreadMark = unread ? ' unread' : '';
@@ -270,7 +270,7 @@
         var cls = m.from === 'admin' ? 'user' : 'admin';
         var who = m.from === 'admin' ? 'Support' : 'User';
         var tm = (m.at || '').replace('T', ' ').slice(0, 16);
-        var text = m.text ? esc(m.text) : '';
+        var text = m.text ? esc(m.text) : (TrustApp.attLabel ? esc(TrustApp.attLabel(m.attachments)) : '');
         var atts = TrustApp.renderAttachments ? TrustApp.renderAttachments(m.attachments) : '';
         var key = m.mid ? esc(m.mid) : ('idx:' + i);
         var edited = m.edited ? ' <span class="msg-edited">(edited)</span>' : '';

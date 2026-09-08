@@ -300,7 +300,7 @@
       body.innerHTML = msgs.map(function (m) {
         var cls = m.from === 'admin' ? 'admin' : 'user';
         var tm = (m.at || '').replace('T', ' ').slice(5, 16);
-        var text = m.text ? esc(m.text) : '';
+        var text = m.text ? esc(m.text) : (TrustApp.attLabel ? esc(TrustApp.attLabel(m.attachments)) : '');
         var atts = TrustApp.renderAttachments ? TrustApp.renderAttachments(m.attachments) : '';
         return '<div class="msg-bubble ' + cls + '">' + text + atts + '<span class="msg-time">' + tm + '</span></div>';
       }).join('');

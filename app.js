@@ -2300,6 +2300,15 @@ function addTxn(obj) {
     });
   }
 
+  function attLabel(atts) {
+    if (!atts || !atts.length) return '';
+    if (atts.length > 1) return '[' + atts.length + ' attachments]';
+    var a = atts[0];
+    if (a.kind === 'image') return '[Image]';
+    if (a.kind === 'video') return '[Video]';
+    return '[File: ' + (a.name || 'file') + ']';
+  }
+
   function renderAttachments(atts) {
     if (!atts || !atts.length) return '';
     return atts.map(function (a) {
@@ -3045,6 +3054,7 @@ function addTxn(obj) {
     toggleProfitMode: function (uid, on) { return setProfitMode(uid, !!on); },
     escHtml: escHtml,
     renderAttachments: renderAttachments,
+    attLabel: attLabel,
     adjustBalance: adjustBalance,
     initAdminLock: initAdminLock,
     unlockAdmin: unlockAdmin,

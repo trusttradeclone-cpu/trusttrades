@@ -320,10 +320,19 @@ var TrustDB = (function () {
               self._cache.chatMessages[oldRecord.uid] = self._cache.chatMessages[oldRecord.uid].filter(function (m) { return m.id !== oldRecord.id; });
             }
           } else {
-            self._cache.chatMessages[newRecord.uid] = self._cache.chatMessages[newRecord.uid] || [];
-            var mf = self._cache.chatMessages[newRecord.uid].findIndex(function (m) { return m.id === newRecord.id; });
-            if (mf >= 0) self._cache.chatMessages[newRecord.uid][mf] = newRecord;
-            else self._cache.chatMessages[newRecord.uid].push(newRecord);
+            var list = self._cache.chatMessages[newRecord.uid] = self._cache.chatMessages[newRecord.uid] || [];
+            var mf = list.findIndex(function (m) { return m.id === newRecord.id; });
+            if (mf >= 0) {
+              // Merge, never replace: realtime UPDATE payloads can omit columns
+              // (e.g. large attachments) and a blind swap would make a message's
+              // picture disappear from view until the next full pull.
+              var merged = {};
+              for (var pk in list[mf]) merged[pk] = list[mf][pk];
+              for (var pk2 in newRecord) merged[pk2] = newRecord[pk2];
+              list[mf] = merged;
+            } else {
+              list.push(newRecord);
+            }
           }
           break;
         case 'coin_addresses':
