@@ -167,6 +167,11 @@
       var txt = abs >= 1000000000 ? (abs / 1000000000).toFixed(2) + 'B' : abs >= 1000000 ? (abs / 1000000).toFixed(1) + 'M' : abs >= 1000 ? (abs / 1000).toFixed(1) + 'K' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       return '$' + txt;
     }
+    function acctName(o) {
+      if (o.account) return o.account;
+      var u = TrustApp.accountByUid ? TrustApp.accountByUid(o.uid) : null;
+      return (u && u.account) || ('' + o.uid);
+    }
     function pad2(n) { return (n < 10 ? '0' : '') + n; }
     function fmtTime(ts) {
       if (!ts) return '--';
@@ -240,7 +245,7 @@
         var profitTxt = o.status === 'rejected' ? '0.00' : (o.profit > 0 ? '+' : '') + fmt(o.profit);
         return '<tr data-id="' + esc(o.id) + '">'
           + '<td><b style="color:#131f30;">' + esc(o.id) + '</b><div class="muted" style="font-size:11px;">' + fmtTime(o.createdAt) + '</div></td>'
-          + '<td><div class="user-cell"><div class="user-ava">' + esc((o.account || '?').charAt(0).toUpperCase()) + '</div><div class="user-meta"><div class="user-name">' + esc(o.account) + '</div><div class="user-uid">' + esc(o.uid || '') + '</div></div></div></td>'
+          + '<td><div class="user-cell"><div class="user-ava">' + esc((acctName(o) || '?').charAt(0).toUpperCase()) + '</div><div class="user-meta"><div class="user-name">' + esc(acctName(o)) + '</div><div class="user-uid">' + esc(o.uid || '') + '</div></div></div></td>'
           + '<td>' + esc(o.product) + '</td>'
           + '<td><span class="money-cell">' + fmt(o.amount) + ' USDT</span></td>'
           + '<td>' + progress + '</td>'

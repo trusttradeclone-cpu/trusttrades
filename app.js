@@ -2049,7 +2049,7 @@ function addTxn(obj) {
       schedules: obj.schedules || []
     };
     if (dbActive()) {
-      DB.addAIOrder({
+      var payload = {
         uid: o.uid,
         account: o.account || null,
         product: o.product,
@@ -2064,7 +2064,14 @@ function addTxn(obj) {
         start_at: o.startAt,
         end_at: o.endAt,
         schedules: o.schedules
-      }).then(function (row) { if (row && row.id) o.id = String(row.id); }).catch(function () {});
+      };
+      DB.addAIOrder(payload).then(function (row) { if (row && row.id) o.id = String(row.id); }).catch(function () {
+        // Live ai_orders tables may lack the account column; retry without it so
+        // the order still persists and appears in the user's + admin's lists.
+        var slim = {};
+        for (var k in payload) if (k !== 'account') slim[k] = payload[k];
+        DB.addAIOrder(slim).then(function (row) { if (row && row.id) o.id = String(row.id); }).catch(function () {});
+      });
     }
     return o;
   }

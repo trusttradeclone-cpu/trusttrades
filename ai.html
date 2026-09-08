@@ -559,6 +559,10 @@ function setMaxAmount() {
 
     window.addEventListener('trustsync:user_balances', refreshBalance);
     window.addEventListener('trustsync:balances', refreshBalance);
+    window.addEventListener('trustsync:ai_orders', function () {
+      var ov = document.getElementById('ordersView');
+      if (ov && ov.style.display !== 'none') loadOrders();
+    });
     if (TrustApp.restoreSession) TrustApp.restoreSession().then(refreshBalance);
     if (window.DB && DB.ready) DB.ready().then(refreshBalance);
   </script>
