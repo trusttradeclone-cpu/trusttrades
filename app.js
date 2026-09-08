@@ -1255,15 +1255,14 @@
   }
 
   // Resolve the current session from the database. Waits for the DB when
-  // it has not connected yet.
+  // it has not connected yet. A slow/cold Supabase read must NOT be treated
+  // as "logged out": the page guard would then bounce a freshly-logged-in
+  // user back to the login screen. So transient lookup failures are retried
+  // before we give up and report "no session".
   function restoreSession() {
-    function doRestore() {
-      var tok = getToken();
-      if (!tok) { _session = null; return Promise.resolve(null); }
-      if (!dbActive()) return Promise.resolve(_session || null);
-      // Add timeout to prevent hanging
+    function getSessionWithRetry(tok, tries) {
       var timeout = new Promise(function (_, reject) {
-        setTimeout(function () { reject(new Error('getSession timeout')); }, 8000);
+        setTimeout(function () { reject(new Error('getSession timeout')); }, 5000);
       });
       return Promise.race([DB.getSession(tok), timeout]).then(function (s) {
         if (!s) { _session = null; return null; }
@@ -1282,7 +1281,20 @@
           } catch (e) {}
         }
         return _session;
-      }).catch(function () { return _session || null; });
+      }).catch(function () {
+        if (tries > 0) {
+          return new Promise(function (res) {
+            setTimeout(function () { res(getSessionWithRetry(tok, tries - 1)); }, 1500);
+          });
+        }
+        return _session || null;
+      });
+    }
+    function doRestore() {
+      var tok = getToken();
+      if (!tok) { _session = null; return Promise.resolve(null); }
+      if (!dbActive()) return Promise.resolve(_session || null);
+      return getSessionWithRetry(tok, 3);
     }
     if (dbActive()) return doRestore();
     return new Promise(function (res) {
