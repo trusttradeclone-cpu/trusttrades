@@ -22,13 +22,13 @@
         <button class="menu-btn" onclick="toggleMenu()" aria-label="Menu">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 12H21M3 6H21M3 18H21" stroke="white" stroke-width="2" stroke-linecap="round"></path></svg>
         </button>
-        <button class="wallet-connect-btn" id="walletBtn" onclick="connectWallet()">
+        <button class="wallet-connect-btn" id="walletBtn" onclick="connectWallet()" style="display:flex;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"></rect><path d="M6 6V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"></path><circle cx="16" cy="13" r="1" fill="currentColor"></circle></svg>
           <span id="walletText" data-i18n="common.connectWallet">Connect Wallet</span>
         </button>
-        <div class="wallet-address" id="walletBalance" style="display:none;">
+        <div class="wallet-address" id="walletBalance" style="display:none; align-items:center; gap:8px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"></rect><path d="M6 6V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"></path><circle cx="16" cy="13" r="1" fill="currentColor"></circle></svg>
-          <span class="wallet-balance" id="walletBalanceAmount">$ 1,025.21</span>
+          <span class="wallet-balance" id="walletBalanceAmount">$ 0.00</span>
         </div>
         <div class="header-right">
           <div class="language-selector">
