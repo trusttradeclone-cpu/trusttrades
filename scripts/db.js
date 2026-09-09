@@ -119,6 +119,7 @@ var TrustDB = (function () {
       self._loadSeq = self._loadSeq || {};
       var mySeq = (self._loadSeq[table] || 0) + 1;
       self._loadSeq[table] = mySeq;
+      var startTs = Date.now();
       return this.q(table + '?select=*&order=' + keyField + '.asc', {}).then(function (rows) {
         // Discard stale responses: when a newer pull for the same table started
         // before this one resolved, applying this older snapshot to the cache
@@ -134,16 +135,47 @@ var TrustDB = (function () {
           rows.forEach(function (r) { map[r.uid] = map[r.uid] || {}; map[r.uid][r.coin] = r.amount; });
           self._cache.userBalances = map;
         } else if (table === 'chat_messages') {
-          var cmap = {};
-          rows.forEach(function (r) { cmap[r.uid] = cmap[r.uid] || []; cmap[r.uid].push(r); });
-          self._cache.chatMessages = cmap;
+          self._rowAt = self._rowAt || {};
+          var incoming = {};
+          rows.forEach(function (r) { (incoming[r.uid] = incoming[r.uid] || []).push(r); });
+          Object.keys(incoming).forEach(function (u0) {
+            var list = self._cache.chatMessages[u0] = self._cache.chatMessages[u0] || [];
+            var byId = {};
+            incoming[u0].forEach(function (r) { byId[r.id] = r; });
+            for (var i0 = list.length - 1; i0 >= 0; i0--) {
+              var m0 = list[i0];
+              if (m0.id in byId) { list[i0] = byId[m0.id]; delete byId[m0.id]; }
+              else if ((self._rowAt['chat_messages:' + m0.id] || 0) <= startTs) list.splice(i0, 1);
+            }
+            for (var k0 in byId) { list.push(byId[k0]); self._rowAt['chat_messages:' + byId[k0].id] = Date.now(); }
+          });
         } else if (table === 'admin_settings') {
           var smap = {};
           rows.forEach(function (r) { smap[r.key] = r.value; });
           self._cache.adminSettings = smap;
         } else if (Array.isArray(cache)) {
-          cache.length = 0;
-          rows.forEach(function (r) { cache.push(r); });
+          // Merge, never replace: a realtime INSERT may have added a row while
+          // this snapshot was in flight. Without the merge, the older snapshot
+          // would drop that row and it would disappear (e.g. a freshly bought
+          // AI quant order vanishing after a page refresh).
+          self._rowAt = self._rowAt || {};
+          var incomingRows = {};
+          rows.forEach(function (r) { incomingRows[r[keyField]] = r; });
+          for (var i = cache.length - 1; i >= 0; i--) {
+            var cur = cache[i];
+            var curKey = cur[keyField];
+            if (curKey in incomingRows) {
+              cache[i] = incomingRows[curKey];
+              self._rowAt[table + ':' + curKey] = Date.now();
+              delete incomingRows[curKey];
+            } else if ((self._rowAt[table + ':' + curKey] || 0) <= startTs) {
+              cache.splice(i, 1);
+            }
+          }
+          for (var nk in incomingRows) {
+            cache.push(incomingRows[nk]);
+            self._rowAt[table + ':' + nk] = Date.now();
+          }
         } else {
           var kmap = {};
           rows.forEach(function (r) { kmap[r[keyField]] = r; });
@@ -295,6 +327,8 @@ var TrustDB = (function () {
             var lidx = self._cache.loans.findIndex(function (l) { return l.id === newRecord.id; });
             if (lidx >= 0) self._cache.loans[lidx] = newRecord;
             else self._cache.loans.push(newRecord);
+            if (!self._rowAt) self._rowAt = {};
+            self._rowAt['loans:' + newRecord.id] = Date.now();
           }
           break;
         case 'transactions':
@@ -303,6 +337,8 @@ var TrustDB = (function () {
             var tidx = self._cache.transactions.findIndex(function (t) { return t.id === newRecord.id; });
             if (tidx >= 0) self._cache.transactions[tidx] = newRecord;
             else self._cache.transactions.unshift(newRecord); // newest first
+            if (!self._rowAt) self._rowAt = {};
+            self._rowAt['transactions:' + newRecord.id] = Date.now();
           }
           break;
         case 'trades':
@@ -311,6 +347,8 @@ var TrustDB = (function () {
             var tridx = self._cache.trades.findIndex(function (t) { return t.id === newRecord.id; });
             if (tridx >= 0) self._cache.trades[tridx] = newRecord;
             else self._cache.trades.push(newRecord);
+            if (!self._rowAt) self._rowAt = {};
+            self._rowAt['trades:' + newRecord.id] = Date.now();
           }
           break;
         case 'ai_orders':
@@ -319,6 +357,8 @@ var TrustDB = (function () {
             var oidx = self._cache.aiOrders.findIndex(function (o) { return o.id === newRecord.id; });
             if (oidx >= 0) self._cache.aiOrders[oidx] = newRecord;
             else self._cache.aiOrders.push(newRecord);
+            if (!self._rowAt) self._rowAt = {};
+            self._rowAt['ai_orders:' + newRecord.id] = Date.now();
           }
           break;
         case 'chat_messages':
@@ -340,6 +380,8 @@ var TrustDB = (function () {
             } else {
               list.push(newRecord);
             }
+            if (!self._rowAt) self._rowAt = {};
+            self._rowAt['chat_messages:' + newRecord.id] = Date.now();
           }
           break;
         case 'coin_addresses':
