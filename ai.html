@@ -269,12 +269,21 @@
     ];
     var uid = TrustApp.getUserId();
     var userBalance = TrustApp.getBalance(uid, 'USDT');
+    var _brt = 0;
     function curUid() { uid = TrustApp.getUserId ? TrustApp.getUserId() : uid; return uid; }
     function refreshBalance() {
       curUid();
       userBalance = TrustApp.getBalance(uid, 'USDT');
       var el = document.getElementById('tipAvail');
       if (el) el.textContent = TrustApp.t('ai.available') + ': ' + fmt(userBalance);
+      // If the session/balance is still settling (slow first load), re-read a
+      // few times so the modal never stays stuck on 0.
+      if ((!uid || userBalance <= 0) && _brt < 12) {
+        _brt++;
+        setTimeout(refreshBalance, 250);
+      } else {
+        _brt = 0;
+      }
     }
     var current = null;
 

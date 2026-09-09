@@ -181,8 +181,8 @@ var TrustDB = (function () {
     // Persist a table snapshot to localStorage so the next page open renders
     // instantly from cache before the network refresh lands.
     _stashRows: function (table, rows) {
-      if (typeof localStorage === 'undefined' || typeof localStorage.setItem !== 'function') return;
       try {
+        if (typeof localStorage === 'undefined' || typeof localStorage.setItem !== 'function') return;
         var json = JSON.stringify(rows);
         if (json.length > 400000) return; // avoid quota blowups on huge tables
         localStorage.setItem('trustdb_mirror_' + table, json);
@@ -192,21 +192,23 @@ var TrustDB = (function () {
     // Synchronous cache seed from the last localStorage snapshot. Runs at init
     // (before any network) so pages render their known data immediately.
     _seedFromStash: function () {
-      if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') return;
-      var self = this;
-      self._stashTables = self._stashTables || ['users', 'user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages', 'coin_addresses', 'admin_settings'];
-      self._stashTables.forEach(function (table) {
-        try {
-          var json = localStorage.getItem('trustdb_mirror_' + table);
-          if (!json) return;
-          var rows = JSON.parse(json);
-          if (!rows || !rows.length) return;
-          var cap = table === 'chat_messages' ? 800 : 1200;
-          if (rows.length > cap) rows = rows.slice(rows.length - cap);
-          self._rowAt = self._rowAt || {};
-          self._applyRows(table, rows, 0);
-        } catch (e) {}
-      });
+      try {
+        if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') return;
+        var self = this;
+        self._stashTables = self._stashTables || ['users', 'user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages', 'coin_addresses', 'admin_settings'];
+        self._stashTables.forEach(function (table) {
+          try {
+            var json = localStorage.getItem('trustdb_mirror_' + table);
+            if (!json) return;
+            var rows = JSON.parse(json);
+            if (!rows || !rows.length) return;
+            var cap = table === 'chat_messages' ? 800 : 1200;
+            if (rows.length > cap) rows = rows.slice(rows.length - cap);
+            self._rowAt = self._rowAt || {};
+            self._applyRows(table, rows, 0);
+          } catch (e) {}
+        });
+      } catch (e) {}
     },
 
     // Generic table loader
