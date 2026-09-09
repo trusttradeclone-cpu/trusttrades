@@ -2688,20 +2688,68 @@ function addTxn(obj) {
     var pub = ['login.html', 'register.html', 'service.html', 'debug_live.html'];
     if (pub.indexOf(f) !== -1) return;
     if (f.indexOf('admin') === 0) return;
-    // Session restore is async (reads the DB); wait for it before deciding.
-    restoreSession().then(function () {
-      if (!isLoggedIn()) {
-        location.replace('login.html?r=' + encodeURIComponent(f + location.search));
-        return;
-      }
+
+    var redirected = false;
+    function goLogin(blocked) {
+      if (redirected) return;
+      redirected = true;
+      var url = 'login.html?r=' + encodeURIComponent(f + location.search) + (blocked ? '&blocked=1' : '');
+      if (window.__guardRedir) { window.__guardRedir(url); return; }
+      if (!location.replace) return;
+      location.replace(url);
+    }
+    function decide(s) {
+      if (redirected) return;
+      if (!s) return goLogin(); // no session resolved -> logged out
+      if (s.admin) return; // admin session may browse private pages
+      if (s.uid == null) return goLogin();
+      // A confirmed identity may stay -- unless the account was deactivated.
       var u = accountByUid(getUserId());
       if (u && u.status === 'inactive') {
-        logout();
-        location.replace('login.html?r=' + encodeURIComponent(f + location.search) + '&blocked=1');
-        return;
+        try { logout(); } catch (e) {}
+        return goLogin(true);
       }
-      try { updateMenuUser(); } catch (e) {}
+    }
+
+    // Validate against the DB. If the DB cannot be reached, do NOT let a
+    // logged-out visitor keep exploring a private page: without a confirmable
+    // identity, bounce to login after a short grace so real loading isn't
+    // interrupted (a stale left-open tab would otherwise stay explorable).
+    var inFlight = false;
+    function recheck() {
+      if (redirected || inFlight) return;
+      inFlight = true;
+      var resolved = false;
+      restoreSession().then(function (s) {
+        resolved = true;
+        inFlight = false;
+        decide(s);
+      });
+      setTimeout(function () {
+        inFlight = false;
+        if (redirected || resolved || (_session && _session.uid != null)) return;
+        goLogin();
+      }, 8000);
+    }
+    function check() {
+      if (redirected) return;
+      if (_session && _session.uid != null) return; // identity in memory; rechecks validate it
+      recheck();
+    }
+
+    check();
+    // Reopen a left-open page (mobile tab restore / BFCache / back navigation)
+    // re-validates the session instead of trusting the in-memory snapshot.
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) recheck();
     });
+    if (window.addEventListener) window.addEventListener('focus', function () {
+      if (!document.hidden) recheck();
+    });
+    // Session revoked while the page sits open: pick it up within ~30s.
+    setInterval(function () {
+      if (!document.hidden && !redirected) recheck();
+    }, 30000);
   })();
 
   function marketToTradeQuery(d, tab) {
