@@ -2163,6 +2163,7 @@ function addTxn(obj) {
         } else if (o.status === 'running') {
           var scheds = o.schedules || [];
           var settled = 0;
+          var credit = 0;
           for (var d = 0; d < scheds.length; d++) {
             var s = scheds[d];
             if (s.status === 1) { settled++; continue; }
@@ -2173,8 +2174,8 @@ function addTxn(obj) {
               s.rate = rate;
               s.profit = dayProfit;
               settled++;
+              credit += dayProfit;
               o.profit = Math.round(((o.profit || 0) + dayProfit) * 100) / 100;
-              if (o.uid) addBalance(o.uid, 'USDT', dayProfit);
             }
           }
           o.settledDays = settled;
@@ -2182,8 +2183,11 @@ function addTxn(obj) {
           if (settled >= o.period) {
             o.status = 'completed';
             o.endAt = new Date().toISOString();
-            if (o.uid) addBalance(o.uid, 'USDT', o.amount);
+            credit += o.amount;
           }
+          // Credit each order once per tick with the aggregated sum so a
+          // multi-day catch-up cannot clobber itself with stale write-backs.
+          if (credit > 0 && o.uid) addBalance(o.uid, 'USDT', Math.round(credit * 100) / 100);
           if (settled > 0) changed = true;
         }
       }
@@ -3181,6 +3185,8 @@ function addTxn(obj) {
   global.TrustApp.initAdminLock = initAdminLock;
   global.TrustApp.isCurrentUserAdmin = isCurrentUserAdmin;
   global.TrustApp.getUserId = getUserId;
+  global.TrustApp.aiProcess = aiProcess;
+  global.aiProcess = aiProcess;
 
   (function startAIEngine() {
     try { aiProcess(); } catch (e) {}

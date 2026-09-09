@@ -505,11 +505,39 @@ var TrustDB = (function () {
     getAllBalances: function (uid) { return this._balanceMap(uid) || {}; },
     addBalance: function (uid, coin, delta) {
       var self = this;
-      var current = self.getBalance(uid, coin);
-      var next = Math.max(0, current + delta);
-      return this.q('user_balances', { method: 'POST', body: { uid: uid, coin: coin, amount: next } })
-        .then(function () { return next; })
-        .catch(function () { return self.q('user_balances?uid=eq.' + uid + '&coin=eq.' + coin, { method: 'PATCH', body: { amount: next } }).then(function () { return next; }); });
+      delta = parseFloat(delta) || 0;
+      var sKey = uid == null ? null : String(uid);
+      var nKey = (uid != null && isFinite(uid)) ? Number(uid) : null;
+      var setCache = function (v) {
+        var c0 = self._cache.userBalances = self._cache.userBalances || {};
+        (c0[sKey] = c0[sKey] || {})[coin] = v;
+        if (nKey != null && nKey !== sKey) (c0[nKey] = c0[nKey] || {})[coin] = v;
+      };
+      // Compute `next` from the AUTHORITATIVE server-side amount, not a local
+      // snapshot that can be stale: a stale value would overwrite a larger
+      // real balance with `stale + delta` and silently erase money.
+      var readServer = function () {
+        return self.q('user_balances?uid=eq.' + (sKey || '') + '&coin=eq.' + coin + '&select=amount&limit=1', {})
+          .then(function (rows) {
+            // The table is UNIQUE(uid, coin) on Supabase (a single row), but
+            // row order can be anything, so take the LAST row: it is the most
+            // recent authoritative amount and matches the last-wins cache mirror.
+            return rows && rows.length ? parseFloat(rows[rows.length - 1].amount) || 0 : 0;
+          })
+          .catch(function () { return self.getBalance(uid, coin) || 0; });
+      };
+      var writeFrom = function (base) {
+        var next = Math.max(0, base + delta);
+        setCache(next);
+        return self.q('user_balances', { method: 'POST', body: { uid: uid, coin: coin, amount: next } })
+          .then(function () { setCache(next); return next; })
+          .catch(function () {
+            return self.q('user_balances?uid=eq.' + (sKey || '') + '&coin=eq.' + coin, { method: 'PATCH', body: { amount: next } })
+              .then(function () { setCache(next); return next; })
+              .catch(function () { setCache(next); return next; });
+          });
+      };
+      return readServer().then(writeFrom);
     },
     setBalance: function (uid, coin, amount) {
       return this.addBalance(uid, coin, amount - this.getBalance(uid, coin));
