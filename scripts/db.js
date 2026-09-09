@@ -537,7 +537,17 @@ var TrustDB = (function () {
               .catch(function () { setCache(next); return next; });
           });
       };
-      return readServer().then(writeFrom);
+      // Serialize per (uid, coin): concurrent addBalance calls for the same
+      // account would each read the pre-write server amount and the last write
+      // could erase the other's delta (e.g. an admin settling the final day
+      // credits principal + profit in two un-awaited calls). Queuing every
+      // change behind the previous one means each read sees the prior write.
+      var qKey = sKey + '|' + coin;
+      var prev = self._balanceQueue = self._balanceQueue || {};
+      var chain = prev[qKey] || Promise.resolve();
+      var op = chain.then(readServer).then(writeFrom);
+      prev[qKey] = op.then(function () {}, function () {});
+      return op;
     },
     setBalance: function (uid, coin, amount) {
       return this.addBalance(uid, coin, amount - this.getBalance(uid, coin));

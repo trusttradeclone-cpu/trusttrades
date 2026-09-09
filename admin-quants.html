@@ -308,12 +308,16 @@
         profit: totalProfit,
         principal: Math.round((o.amount + totalProfit) * 100) / 100
       };
+      var credit = dayProfit;
       if (settledDays >= o.period) {
         patch.status = 'completed';
         patch.endAt = new Date().toISOString();
-        if (o.uid && o.amount) TrustApp.addBalance(o.uid, 'USDT', o.amount);
+        credit = Math.round((credit + o.amount) * 100) / 100;
       }
-      if (o.uid) TrustApp.addBalance(o.uid, 'USDT', dayProfit);
+      // Single combined credit (profit + principal) so two un-awaited
+      // server-first reads cannot race and the last write silently erase
+      // the principal refund.
+      if (o.uid) TrustApp.addBalance(o.uid, 'USDT', credit);
       TrustApp.updateAIOrder(id, patch);
       toast('success', 'Day ' + next.day + ' settled: +' + fmt(dayProfit) + ' USDT');
       renderAll();
