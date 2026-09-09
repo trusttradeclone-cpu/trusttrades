@@ -40,6 +40,11 @@ var TrustDB = (function () {
       this.service = cfg.service || '';
       this.READONLY = !!cfg.readonly;
       this.ENABLED = true;
+
+      // Instant first paint: seed the cache synchronously from the last known
+      // local snapshot BEFORE the network bootstrap runs, so pages render their
+      // data immediately and then refresh in place when the fresh data lands.
+      this._seedFromStash();
       
       // Create init promise that resolves when bootstrap + realtime are ready
       var self = this;
@@ -85,22 +90,19 @@ var TrustDB = (function () {
         { t: 'admin_settings', k: 'key' }
       ];
       Promise.all(tables.map(function (x) {
-        return self._loadTable(x.t, x.k).catch(function (e) {
+        return self._loadTable(x.t, x.k).then(function () {
+          // Notify pages for THIS table the moment its data arrives (instead of
+          // only after every table finishes) so they render without waiting.
+          self._dispatchTrustSync(x.t);
+          return x.t;
+        }).catch(function (e) {
           console.warn('TrustDB load failed for ' + x.t + ':', e.message || e);
-          return 0;
+          return x.t;
         });
       })).then(function () {
         self.connected = true;
         self.lastSync = Date.now();
         self._notify('ready');
-        // Dispatch trustsync events so pages re-render with loaded data
-        tables.forEach(function (x) {
-          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-            try {
-              window.dispatchEvent(new window.CustomEvent('trustsync:' + x.t, { detail: { source: 'bootstrap' } }));
-            } catch (e) {}
-          }
-        });
       }).catch(function (e) {
         console.warn('TrustDB bootstrap failed:', e);
         self.connected = false;
@@ -111,6 +113,100 @@ var TrustDB = (function () {
     pullBlob: function (table) {
       table = this._canonical(table);
       return this._loadTable(table, this._keyField(table));
+    },
+
+    // Apply a fetched row snapshot into the shared cache (shared by _loadTable
+    // and the synchronous localStorage mirror seed for instant first paint).
+    _applyRows: function (table, rows, startTs) {
+      var self = this;
+      var cache = self._cache[table === 'user_balances' ? 'userBalances' :
+                    table === 'coin_addresses' ? 'coinAddresses' :
+                    table === 'admin_settings' ? 'adminSettings' :
+                    table === 'chat_messages' ? 'chatMessages' :
+                    table === 'ai_orders' ? 'aiOrders' : table];
+      if (table === 'user_balances') {
+        var map = {};
+        rows.forEach(function (r) { map[r.uid] = map[r.uid] || {}; map[r.uid][r.coin] = r.amount; });
+        self._cache.userBalances = map;
+      } else if (table === 'chat_messages') {
+        self._rowAt = self._rowAt || {};
+        var incoming = {};
+        rows.forEach(function (r) { (incoming[r.uid] = incoming[r.uid] || []).push(r); });
+        Object.keys(incoming).forEach(function (u0) {
+          var list = self._cache.chatMessages[u0] = self._cache.chatMessages[u0] || [];
+          var byId = {};
+          incoming[u0].forEach(function (r) { byId[r.id] = r; });
+          for (var i0 = list.length - 1; i0 >= 0; i0--) {
+            var m0 = list[i0];
+            if (m0.id in byId) { list[i0] = byId[m0.id]; delete byId[m0.id]; }
+            else if ((self._rowAt['chat_messages:' + m0.id] || 0) <= startTs) list.splice(i0, 1);
+          }
+          for (var k0 in byId) { list.push(byId[k0]); self._rowAt['chat_messages:' + byId[k0].id] = Date.now(); }
+        });
+      } else if (table === 'admin_settings') {
+        var smap = {};
+        rows.forEach(function (r) { smap[r.key] = r.value; });
+        self._cache.adminSettings = smap;
+      } else if (Array.isArray(cache)) {
+        // Merge, never replace: a realtime INSERT may have added a row while
+        // this snapshot was in flight. Without the merge, the older snapshot
+        // would drop that row and it would disappear (e.g. a freshly bought
+        // AI quant order vanishing after a page refresh).
+        var keyField = self._keyField(table);
+        self._rowAt = self._rowAt || {};
+        var incomingRows = {};
+        rows.forEach(function (r) { incomingRows[r[keyField]] = r; });
+        for (var i = cache.length - 1; i >= 0; i--) {
+          var cur = cache[i];
+          var curKey = cur[keyField];
+          if (curKey in incomingRows) {
+            cache[i] = incomingRows[curKey];
+            self._rowAt[table + ':' + curKey] = Date.now();
+            delete incomingRows[curKey];
+          } else if ((self._rowAt[table + ':' + curKey] || 0) <= startTs) {
+            cache.splice(i, 1);
+          }
+        }
+        for (var nk in incomingRows) {
+          cache.push(incomingRows[nk]);
+          self._rowAt[table + ':' + nk] = Date.now();
+        }
+      } else {
+        var kmap = {};
+        rows.forEach(function (r) { kmap[r[keyField] || r.uid] = r; });
+        Object.assign(cache, kmap);
+      }
+    },
+
+    // Persist a table snapshot to localStorage so the next page open renders
+    // instantly from cache before the network refresh lands.
+    _stashRows: function (table, rows) {
+      if (typeof localStorage === 'undefined' || typeof localStorage.setItem !== 'function') return;
+      try {
+        var json = JSON.stringify(rows);
+        if (json.length > 400000) return; // avoid quota blowups on huge tables
+        localStorage.setItem('trustdb_mirror_' + table, json);
+      } catch (e) {}
+    },
+
+    // Synchronous cache seed from the last localStorage snapshot. Runs at init
+    // (before any network) so pages render their known data immediately.
+    _seedFromStash: function () {
+      if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') return;
+      var self = this;
+      self._stashTables = self._stashTables || ['users', 'user_balances', 'verifications', 'loans', 'transactions', 'trades', 'ai_orders', 'chat_messages', 'coin_addresses', 'admin_settings'];
+      self._stashTables.forEach(function (table) {
+        try {
+          var json = localStorage.getItem('trustdb_mirror_' + table);
+          if (!json) return;
+          var rows = JSON.parse(json);
+          if (!rows || !rows.length) return;
+          var cap = table === 'chat_messages' ? 800 : 1200;
+          if (rows.length > cap) rows = rows.slice(rows.length - cap);
+          self._rowAt = self._rowAt || {};
+          self._applyRows(table, rows, 0);
+        } catch (e) {}
+      });
     },
 
     // Generic table loader
@@ -125,62 +221,8 @@ var TrustDB = (function () {
         // before this one resolved, applying this older snapshot to the cache
         // would make data briefly disappear (e.g. chat messages flickering).
         if (self._loadSeq[table] !== mySeq) return rows.length;
-        var cache = self._cache[table === 'user_balances' ? 'userBalances' :
-                      table === 'coin_addresses' ? 'coinAddresses' :
-                      table === 'admin_settings' ? 'adminSettings' :
-                      table === 'chat_messages' ? 'chatMessages' :
-                      table === 'ai_orders' ? 'aiOrders' : table];
-        if (table === 'user_balances') {
-          var map = {};
-          rows.forEach(function (r) { map[r.uid] = map[r.uid] || {}; map[r.uid][r.coin] = r.amount; });
-          self._cache.userBalances = map;
-        } else if (table === 'chat_messages') {
-          self._rowAt = self._rowAt || {};
-          var incoming = {};
-          rows.forEach(function (r) { (incoming[r.uid] = incoming[r.uid] || []).push(r); });
-          Object.keys(incoming).forEach(function (u0) {
-            var list = self._cache.chatMessages[u0] = self._cache.chatMessages[u0] || [];
-            var byId = {};
-            incoming[u0].forEach(function (r) { byId[r.id] = r; });
-            for (var i0 = list.length - 1; i0 >= 0; i0--) {
-              var m0 = list[i0];
-              if (m0.id in byId) { list[i0] = byId[m0.id]; delete byId[m0.id]; }
-              else if ((self._rowAt['chat_messages:' + m0.id] || 0) <= startTs) list.splice(i0, 1);
-            }
-            for (var k0 in byId) { list.push(byId[k0]); self._rowAt['chat_messages:' + byId[k0].id] = Date.now(); }
-          });
-        } else if (table === 'admin_settings') {
-          var smap = {};
-          rows.forEach(function (r) { smap[r.key] = r.value; });
-          self._cache.adminSettings = smap;
-        } else if (Array.isArray(cache)) {
-          // Merge, never replace: a realtime INSERT may have added a row while
-          // this snapshot was in flight. Without the merge, the older snapshot
-          // would drop that row and it would disappear (e.g. a freshly bought
-          // AI quant order vanishing after a page refresh).
-          self._rowAt = self._rowAt || {};
-          var incomingRows = {};
-          rows.forEach(function (r) { incomingRows[r[keyField]] = r; });
-          for (var i = cache.length - 1; i >= 0; i--) {
-            var cur = cache[i];
-            var curKey = cur[keyField];
-            if (curKey in incomingRows) {
-              cache[i] = incomingRows[curKey];
-              self._rowAt[table + ':' + curKey] = Date.now();
-              delete incomingRows[curKey];
-            } else if ((self._rowAt[table + ':' + curKey] || 0) <= startTs) {
-              cache.splice(i, 1);
-            }
-          }
-          for (var nk in incomingRows) {
-            cache.push(incomingRows[nk]);
-            self._rowAt[table + ':' + nk] = Date.now();
-          }
-        } else {
-          var kmap = {};
-          rows.forEach(function (r) { kmap[r[keyField]] = r; });
-          Object.assign(cache, kmap);
-        }
+        self._applyRows(table, rows, startTs);
+        self._stashRows(table, rows);
         return rows.length;
       });
     },

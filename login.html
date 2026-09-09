@@ -94,7 +94,7 @@
         if (!res.ok) { toast('error', res.msg || 'Login failed'); return; }
         toast('success', 'Login successful');
         var r = getParam('r');
-        setTimeout(function () { location.href = r || 'index.html'; }, 800);
+        setTimeout(function () { location.href = r || 'index.html'; }, 150);
       }).catch(function (err) {
         btn.disabled = false; btn.textContent = 'Login';
         toast('error', err.message || 'Login failed');

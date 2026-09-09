@@ -42,7 +42,7 @@
   // uid -> { coin: balance } map used by guessVip (DB-backed).
   function getBalanceMap() {
     var map = {};
-    if (dbActive() && DB && DB._cache && DB._cache.userBalances) {
+    if (dbReadable() && DB && DB._cache && DB._cache.userBalances) {
       try {
         Object.keys(DB._cache.userBalances).forEach(function (u) {
           map[u] = DB._cache.userBalances[u] || {};
@@ -109,7 +109,7 @@
   function getConfig() {
     var saved = null;
     try {
-      if (dbActive() && DB.getSetting) {
+      if (dbReadable() && DB.getSetting) {
         saved = DB.getSetting('config');
         if (typeof saved === 'string') { try { saved = JSON.parse(saved) || null; } catch (e) { saved = null; } }
       }
@@ -1387,6 +1387,28 @@
     return typeof DB !== 'undefined' && DB && DB.connected === true;
   }
 
+  // Read-only variant: cache is usable as soon as ANY snapshot is present
+  // (localStorage mirror seed at init, or a table that arrived mid-bootstrap),
+  // so pages paint instantly instead of waiting for the full bootstrap.
+  function dbReadable() {
+    if (dbActive()) return true;
+    if (typeof DB !== 'undefined' && DB && DB._cache) {
+      try {
+        var c = DB._cache;
+        return Boolean(
+          (c.users && c.users.length) ||
+          Object.keys(c.userBalances || {}).length ||
+          (c.aiOrders && c.aiOrders.length) ||
+          (c.loans && c.loans.length) ||
+          (c.transactions && c.transactions.length) ||
+          (c.chatMessages && Object.keys(c.chatMessages).length) ||
+          Object.keys(c.adminSettings || {}).length
+        );
+      } catch (e) {}
+    }
+    return false;
+  }
+
   function dbUserToApp(u) {
     return {
       uid: u.uid,
@@ -1563,7 +1585,7 @@
   }
 
   function getUsers() {
-    if (dbActive()) {
+    if (dbReadable()) {
       try {
         // Admin/user lists exclude guest blocks; accountByUid still finds them.
         return (DB.getUsers() || []).filter(function (u) { return !u.is_guest; }).map(dbUserToApp);
@@ -1754,7 +1776,7 @@
 
   function getBalances(uid) {
     if (!uid) return {};
-    if (dbActive()) {
+    if (dbReadable()) {
       var m = {};
       try { m = DB.getAllBalances(uid) || {}; } catch (e) {}
       var b = {};
@@ -1791,7 +1813,7 @@
   }
 
   function getTxns() {
-    if (dbActive()) {
+    if (dbReadable()) {
       try { return (DB.getTransactions() || []).map(dbTxnToApp); } catch (e) {}
     }
     return [];
@@ -1905,7 +1927,7 @@ function addTxn(obj) {
   var LOAN_KEY = 'trustLoans';
 
   function getLoans() {
-    if (dbActive()) {
+    if (dbReadable()) {
       try { return (DB.getLoans() || []).map(dbLoanToApp); } catch (e) {}
     }
     return [];
@@ -1957,7 +1979,7 @@ function addTxn(obj) {
   }
 
   function getTrades() {
-    if (dbActive()) {
+    if (dbReadable()) {
       try { return (DB.getTrades() || []).map(dbTradeToApp); } catch (e) {}
     }
     return [];
@@ -2021,7 +2043,7 @@ function addTxn(obj) {
 
   var AI_KEY = 'trustAIOrders';
   function getAIOrders() {
-    if (dbActive()) {
+    if (dbReadable()) {
       try { return (DB.getAIOrders() || []).map(dbAiOrderToApp); } catch (e) {}
     }
     return [];
@@ -2196,7 +2218,7 @@ function addTxn(obj) {
 
   function getChat(uid) {
     if (!uid) return [];
-    if (dbActive()) {
+    if (dbReadable()) {
       try {
         return (DB.getChat(uid) || []).filter(function (m) { return !m.deleted; }).map(dbChatToApp);
       } catch (e) {}
@@ -2469,7 +2491,7 @@ function addTxn(obj) {
     Object.keys(DEFAULT_COIN_ADDRESSES).forEach(function (coin) {
       out[coin] = { net: DEFAULT_COIN_ADDRESSES[coin].net, addr: DEFAULT_COIN_ADDRESSES[coin].addr };
     });
-    if (dbActive()) {
+    if (dbReadable()) {
       try {
         var m = DB.getCoinAddresses() || {};
         Object.keys(m).forEach(function (coin) {
@@ -2505,7 +2527,7 @@ function addTxn(obj) {
   }
 
   function getVerifications() {
-    if (dbActive()) {
+    if (dbReadable()) {
       var map = {};
       try {
         (DB.getAllVerifications() || []).forEach(function (v) { map[v.uid] = dbVerToApp(v); });
