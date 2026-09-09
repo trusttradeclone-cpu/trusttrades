@@ -565,6 +565,12 @@ function setMaxAmount() {
     });
     if (TrustApp.restoreSession) TrustApp.restoreSession().then(refreshBalance);
     if (window.DB && DB.ready) DB.ready().then(refreshBalance);
+    // Safety net: session/balance can settle slightly after the events above;
+    // a short re-read guarantees the real balance is shown even then.
+    setTimeout(refreshBalance, 700);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) refreshBalance();
+    });
   </script>
 </body>
 </html>
