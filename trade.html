@@ -331,7 +331,7 @@
       if (amt > bal) { toast('error', 'Insufficient USDT balance'); return; }
       TrustApp.addBalance(uid, 'USDT', -amt);
       var u = TrustApp.accountByUid(uid);
-      var t = TrustApp.addTrade({ pair: coinTitle, side: direction, amount: amt, price: price, user: u ? u.account : ('ID ' + uid), duration: durationSec });
+      var t = TrustApp.addTrade({ uid: uid, pair: coinTitle, side: direction, amount: amt, price: price, user: u ? u.account : ('ID ' + uid), duration: durationSec });
       currentOrderId = t ? t.id : null;
       document.getElementById('submitOverlay').style.display = 'none';
       buyPrice = price;

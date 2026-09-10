@@ -148,6 +148,11 @@
   // Needed by restoreSession() which runs during boot below (before the
   // session-layer `var` statements further down execute).
   var SESSION_COOKIE = 'trsstok';
+  // One-time legacy-trade migration guard. MUST be declared before
+  // bootDbHooks() runs: onReady fires mid-eval and would otherwise be
+  // reset to false by the later `var` initialization, letting a second
+  // trustsync event run the migration again (duplicate rows).
+  var _migTradesDone = false;
 
   (function bootDbHooks() {
     if (typeof DB === 'undefined' || !DB) return;
@@ -155,6 +160,7 @@
       try { reloadConfigFromDb(); } catch (e) {}
       try { applyI18n(); } catch (e) {}
       try { updateMenuUser(); } catch (e) {}
+      try { migrateLegacyTrades(); } catch (e) {}
     }
     if (DB.onReady) DB.onReady(hook);
     if (typeof window !== 'undefined') {
@@ -1978,18 +1984,56 @@ function addTxn(obj) {
     return done();
   }
 
+  function legacyTradeToApp(x) {
+    if (!x) return null;
+    return {
+      id: x.id != null ? String(x.id) : (x.orderId != null ? String(x.orderId) : genId('TRD')),
+      uid: x.uid || (/^\d+$/.test(String(x.user || '')) ? String(x.user) : null),
+      pair: x.pair || 'BTC/USDT',
+      side: x.side || 'up',
+      amount: parseFloat(x.amount) || 0,
+      price: parseFloat(x.price) || 0,
+      user: x.user || x.account || x.uid || '',
+      createdAt: x.createdAt || x.created_at || x.time || null,
+      status: x.status || 'open',
+      duration: parseInt(x.duration, 10) || 0,
+      sellPrice: x.sellPrice != null ? parseFloat(x.sellPrice) : (x.sell_price != null ? parseFloat(x.sell_price) : null),
+      settledAt: x.settledAt || x.settled_at || null,
+      profit: parseFloat(x.profit) || 0
+    };
+  }
+
   function getTrades() {
+    var list = [];
     if (dbReadable()) {
-      try { return (DB.getTrades() || []).map(dbTradeToApp); } catch (e) {}
+      try { list = (DB.getTrades() || []).map(dbTradeToApp); } catch (e) {}
     }
-    return [];
+    // Merge any legacy localStorage trades (old builds wrote here) so history
+    // is never invisible, then migrate them into Supabase on boot.
+    var seen = {};
+    list.forEach(function (t) { seen[String(t.id)] = 1; });
+    try {
+      var raw = JSON.parse((typeof localStorage !== 'undefined' && localStorage.getItem('trustTrades')) || '[]') || [];
+      for (var i = 0; i < raw.length; i++) {
+        var t = legacyTradeToApp(raw[i]);
+        if (!t || seen[String(t.id)]) continue;
+        seen[String(t.id)] = 1;
+        list.push(t);
+      }
+    } catch (e) {}
+    list.sort(function (a, b) { return String(b.createdAt || '').localeCompare(String(a.createdAt || '')); });
+    return list;
   }
   function saveTrades(list) { return list; }
+
+  // ID mapping: generated trade ID -> DB ID (for settle/close PATCH fallback)
+  var _tradeIdMap = {};
 
   function addTrade(obj) {
     var t = {
       id: genId('TRD'),
-      uid: obj.uid || (typeof obj.user !== 'undefined' && /^\d+$/.test(obj.user) ? obj.user : null),
+      uid: obj.uid || getUserId() ||
+        (typeof obj.user !== 'undefined' && /^\d+$/.test(String(obj.user)) ? String(obj.user) : null),
       pair: obj.pair || 'BTC/USDT',
       side: obj.side || 'up',
       amount: parseFloat(obj.amount) || 0,
@@ -2002,6 +2046,7 @@ function addTxn(obj) {
       settledAt: obj.settledAt || null,
       profit: parseFloat(obj.profit) || 0
     };
+    var localId = t.id;
     if (dbActive()) {
       DB.addTrade({
         uid: t.uid,
@@ -2015,20 +2060,46 @@ function addTxn(obj) {
         sellPrice: t.sellPrice,
         settledAt: t.settledAt,
         profit: t.profit
-      }).then(function (row) { if (row && row.id) t.id = String(row.id); }).catch(function () {});
+      }).then(function (row) {
+        if (row && row.id) {
+          _tradeIdMap[localId] = String(row.id);
+          t.id = String(row.id);
+        }
+      }).catch(function () {
+        mirrorTrade(t);
+      });
+    } else {
+      mirrorTrade(t);
     }
     return t;
+  }
+
+  // Keep a recoverable copy in legacy localStorage whenever the write did not
+  // reach Supabase; boot migration pushes these into the DB later.
+  function mirrorTrade(t) {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage.getItem) return;
+      var raw = JSON.parse(localStorage.getItem('trustTrades') || '[]') || [];
+      for (var i = 0; i < raw.length; i++) if (String(raw[i].id) === String(t.id)) { raw[i] = t; localStorage.setItem('trustTrades', JSON.stringify(raw)); return; }
+      raw.unshift(t);
+      if (raw.length > 500) raw.length = 500;
+      localStorage.setItem('trustTrades', JSON.stringify(raw));
+    } catch (e) {}
   }
 
   function updateTrade(id, patch) {
     var t = null;
     var list = getTrades();
+    var dbId = _tradeIdMap[id] || id;
     for (var i = 0; i < list.length; i++) {
-      if (list[i].id === id) {
+      if (String(list[i].id) === String(id) || String(list[i].id) === String(dbId)) {
         for (var k in patch) list[i][k] = patch[k];
         t = list[i];
         break;
       }
+    }
+    if (t) {
+      mirrorTrade(t);
     }
     if (t && dbActive()) {
       var p = {};
@@ -2036,9 +2107,77 @@ function addTxn(obj) {
       if (patch.sellPrice !== undefined) p.sell_price = patch.sellPrice;
       if (patch.settledAt !== undefined) p.settled_at = patch.settledAt;
       if (patch.profit !== undefined) p.profit = patch.profit;
-      DB.updateTrade(String(id), p).catch(function () {});
+      DB.updateTrade(String(dbId), p).catch(function () {});
     }
     return t;
+  }
+
+  // One-time migration: push legacy/offline localStorage trades into Supabase.
+  function migrateLegacyTrades() {
+    if (_migTradesDone) return;
+    _migTradesDone = true;
+    if (!dbActive()) return;
+    DB.ready().then(function () {
+      if (!dbActive()) return;
+      var seen = {};
+      var existing = [];
+      try { existing = DB.getTrades() || []; } catch (e) {}
+      existing.forEach(function (r) { seen[String(r.id)] = 1; });
+      var usersList = [];
+      try { usersList = getUsers(); } catch (e) {}
+      function uidForLegacy(x) {
+        if (x.uid !== undefined && x.uid !== null && String(x.uid) !== '') return String(x.uid);
+        if (!x.user && !x.account) return '';
+        var acct = String(x.user || x.account || '');
+        for (var i = 0; i < usersList.length; i++) {
+          if (String(usersList[i].account || '') === acct) return String(usersList[i].uid);
+        }
+        return '';
+      }
+      var raw = [];
+      try { raw = JSON.parse((typeof localStorage !== 'undefined' && localStorage.getItem('trustTrades')) || '[]') || []; } catch (e) {}
+      raw.forEach(function (x) {
+        var t = legacyTradeToApp(x);
+        if (!t || seen[String(t.id)]) return;
+        seen[String(t.id)] = 1;
+        var legacyUid = uidForLegacy(x);
+        // trades.uid is BIGINT NOT NULL (FK to users): rows without a
+        // resolvable numeric uid cannot be persisted, so leave the mirror
+        // copy in place — it stays visible locally via the merge in getTrades().
+        if (!legacyUid || !/^\d+$/.test(legacyUid)) return;
+        // Cross-device guard: skip if an identical trade already exists in DB
+        // (same opened_at + pair + amount + account), even with a new DB id.
+        var dup = existing.some(function (r) {
+          return String(r.opened_at || '') === String(t.createdAt || '') &&
+                 String(r.pair || '') === String(t.pair || '') &&
+                 parseFloat(r.amount || 0) === parseFloat(t.amount || 0) &&
+                 String(r.account || '') === String(t.user || '');
+        });
+        if (dup) return;
+        DB.addTrade({
+          uid: legacyUid,
+          account: t.user || null,
+          pair: t.pair,
+          side: t.side,
+          amount: t.amount,
+          price: t.price,
+          status: t.status,
+          duration: t.duration,
+          sellPrice: t.sellPrice,
+          settledAt: t.settledAt,
+          profit: t.profit
+        }).then(function () {
+          // Write succeeded: drop the recoverable mirror copy so history
+          // stays deduped (the DB row is now the single source of truth).
+          try {
+            if (typeof localStorage === 'undefined' || !localStorage.getItem) return;
+            var cur = JSON.parse(localStorage.getItem('trustTrades') || '[]') || [];
+            var nxt = cur.filter(function (r) { return String(r.id) !== String(t.id); });
+            localStorage.setItem('trustTrades', JSON.stringify(nxt));
+          } catch (e2) {}
+        }).catch(function () {});
+      });
+    }).catch(function () {});
   }
 
   var AI_KEY = 'trustAIOrders';
