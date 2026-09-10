@@ -133,8 +133,37 @@
       return out;
     }
 
+    // Live prices (exchange page only): batch Binance ticker, refreshed on an
+    // interval + on tab focus. Falls back to the platform market snapshot and
+    // finally to a 1:1 rate so the page keeps working offline.
+    var EX_LIVE = {};
+    var EX_LIVE_AT = 0;
+    var EX_LIVE_SYMS = ['BTC', 'ETH', 'LTC', 'XRP', 'DOGE', 'TON', 'ADA', 'BNB', 'TRX', 'UNI', 'AVAX'];
+    function liveSrc(sym) { return (sym === 'USDT' || sym === 'USDC') ? 1 : (EX_LIVE[sym] || 0); }
+    function fetchLivePrices(done) {
+      var pairs = EX_LIVE_SYMS.map(function (s) { return s + 'USDT'; });
+      fetch('https://api.binance.com/api/v3/ticker/price?symbols=' + encodeURIComponent(JSON.stringify(pairs)), { credentials: 'omit' })
+        .then(function (r) { return r.json(); })
+        .then(function (arr) {
+          if (!arr || !arr.length || !arr[0].symbol) throw new Error('empty ticker');
+          arr.forEach(function (t) { var s = String(t.symbol).replace(/USDT$/, ''); EX_LIVE[s] = parseFloat(t.price) || 0; });
+          EX_LIVE_AT = Date.now();
+          if (done) done(true);
+        })
+        .catch(function () {
+          // Live feed unavailable (blocked/offline): warm the platform market
+          // snapshot instead so the fallback rate is as fresh as possible.
+          if (typeof TrustApp.fetchMarket === 'function') {
+            TrustApp.fetchMarket(function () { if (done) done(false); });
+          } else if (done) done(false);
+        });
+    }
+    function refreshPrices() { fetchLivePrices(function () { calc(); }); }
+
     function rateOf(sym) {
-      if (sym === 'USDT') return 1;
+      if (sym === 'USDT' || sym === 'USDC') return 1;
+      var lv = liveSrc(sym);
+      if (lv > 0) return lv;
       var d = TrustApp.findCoin ? TrustApp.findCoin(sym) : null;
       return d ? (parseFloat(d.price) || 1) : 1;
     }
@@ -171,7 +200,7 @@
       var usd = amt * fromR;
       var recv = usd / toR * (1 - EXCHANGE_FEE / 100);
       document.getElementById('toAmount').value = recv === 0 ? '' : recv.toFixed(recv < 0.01 ? 8 : (recv < 10 ? 4 : 2));
-      document.getElementById('rateLine').textContent = TrustApp.t('exch.rate') + ': 1 ' + document.getElementById('fromCoin').value + ' = ' + (fromR / toR).toFixed(6) + ' ' + document.getElementById('toCoin').value;
+      document.getElementById('rateLine').textContent = TrustApp.t('exch.rate') + ': 1 ' + document.getElementById('fromCoin').value + ' = ' + (fromR / toR).toFixed(6) + ' ' + document.getElementById('toCoin').value + (EX_LIVE_AT > 0 ? ' live' : ' static');
     }
 
     function setMax() {
@@ -240,14 +269,16 @@
     window.addEventListener('trustsync:user_balances', function () { updateBals(); });
     window.addEventListener('trustsync:transactions', function () { renderHist(); });
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) updateBals();
+      if (!document.hidden) { updateBals(); refreshPrices(); }
     });
     setInterval(function () { updateBals(); renderHist(); }, 3000);
+    setInterval(refreshPrices, 30000);
     // The real identity only appears after the async session restore; refresh
     // the balance + history the moment it lands so we never show another
     // account's (or zero) balances.
     if (TrustApp.restoreSession) TrustApp.restoreSession().then(function () { refreshUid(); });
     if (window.DB && DB.onReady) DB.onReady(function () { refreshUid(); });
+    refreshPrices();
     updateBals();
     calc();
     renderHist();
