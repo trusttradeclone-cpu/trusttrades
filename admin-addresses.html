@@ -197,6 +197,9 @@
       document.getElementById('caModal').style.display = 'none';
       editingCoin = null;
     }
+    function refreshAddrs() {
+      if (window.DB && DB.pullBlob) DB.pullBlob('coin_addresses').then(function () { renderList(); }).catch(function () { renderList(); });
+    }
     function saveEditor() {
       var coin = editingCoin || document.getElementById('caCoin').value;
       var net = document.getElementById('caNet').value.trim();
@@ -206,12 +209,15 @@
       toast('success', (editingCoin ? coin : coin.toUpperCase()) + ' address saved');
       closeEditor();
       renderList();
+      refreshAddrs();
     }
     function removeCoin(coin) {
       if (!confirm('Remove ' + coin + '? The deposit address for this coin will be hidden.')) return;
-      TrustApp.removeCoinAddress(coin);
+      var res = TrustApp.removeCoinAddress(coin);
+      if (!res.ok) { toast('error', res.msg); return; }
       toast('success', coin + ' removed');
       renderList();
+      refreshAddrs();
     }
 
     if (window.supabase && window.supabase.auth) { window.supabase.auth.signOut().catch(function() {}); }

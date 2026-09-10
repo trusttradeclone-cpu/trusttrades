@@ -716,11 +716,46 @@ var TrustDB = (function () {
     saveCoinAddress: function (coin, net, addr) {
       var self = this;
       return this.q('coin_addresses', { method: 'POST', body: { coin: coin, network: net, address: addr, is_active: true } })
-        .then(function (rows) { return rows[0]; })
-        .catch(function () { return self.q('coin_addresses?coin=eq.' + coin, { method: 'PATCH', body: { address: addr, network: net, is_active: true } }); });
+        .then(function (rows) {
+          if (!rows || !rows.length) throw new Error('no row inserted');
+          return rows[0];
+        })
+        .catch(function (e) {
+          return self.q('coin_addresses?coin=eq.' + ('' + coin), { method: 'PATCH', body: { address: addr, network: net, is_active: true } })
+            .then(function (rows) {
+              if (!rows || !rows.length) throw new Error('coin address write failed (no INSERT/UPDATE row returned)');
+              return rows[0];
+            });
+        });
     },
     deleteCoinAddress: function (coin) {
-      return this.q('coin_addresses?coin=eq.' + coin, { method: 'DELETE' });
+      // Remove the DB row AND mark the coin as disabled so the hardcoded
+      // DEFAULT_COIN_ADDRESSES cannot resurrect it in the admin list / deposit page.
+      var self = this;
+      return this.q('coin_addresses?coin=eq.' + ('' + coin), { method: 'DELETE' })
+        .then(function () { return self.addDisabledCoin(coin); });
+    },
+    addDisabledCoin: function (coin) {
+      var self = this;
+      var list = self._cache.adminSettings['disabled_coin_addresses'];
+      if (Array.isArray(list) && list.indexOf(coin) !== -1) return Promise.resolve(list);
+      var next = (Array.isArray(list) ? list.slice() : []).concat([coin]);
+      return self.setSetting('disabled_coin_addresses', next).then(function () {
+        self._cache.adminSettings['disabled_coin_addresses'] = next;
+        if (self._dispatchTrustSync) self._dispatchTrustSync('coin_addresses');
+        return next;
+      });
+    },
+    enableCoin: function (coin) {
+      var self = this;
+      var list = self._cache.adminSettings['disabled_coin_addresses'];
+      if (!Array.isArray(list) || list.indexOf(coin) === -1) return Promise.resolve(list);
+      var next = list.filter(function (c) { return c !== coin; });
+      return self.setSetting('disabled_coin_addresses', next).then(function () {
+        self._cache.adminSettings['disabled_coin_addresses'] = next;
+        if (self._dispatchTrustSync) self._dispatchTrustSync('coin_addresses');
+        return next;
+      });
     },
 
     // Admin Settings

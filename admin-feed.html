@@ -71,7 +71,7 @@
 
     <div class="admin-panel">
       <div class="admin-panel-head">
-        <div class="ph-title"><span class="ph-dot" style="background:#059669;"></span>Stream <span class="ph-sub">&#183; latest real trades</span></div>
+        <div class="ph-title"><span class="ph-dot" style="background:#059669;"></span>Stream <span class="ph-sub">&#183; latest real trades</span> <span class="ph-sub" id="feedSync" style="color:#8a94a6;">syncing&#8230;</span></div>
       </div>
       <div class="admin-table-wrap">
         <table>
@@ -156,12 +156,24 @@
     // polling the tables every 2.5s is what makes new trades stream into the
     // feed without a manual page reload.
     function pullLatest() {
-      if (typeof DB === 'undefined' || !DB || !DB.pullBlob || !DB.ENABLED) { render(); return; }
-      Promise.all([DB.pullBlob('trades'), DB.pullBlob('users')]).then(function () { render(); }).catch(function () { render(); });
+      var note = document.getElementById('feedSync');
+      function done() {
+        render();
+        if (note) {
+          var n = 0;
+          try { n = TrustApp.getTrades().length; } catch (e) {}
+          var d = new Date();
+          var p = function (x) { return (x < 10 ? '0' : '') + x; };
+          note.textContent = '\u00b7 ' + n + ' trades \u00b7 synced ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+        }
+      }
+      if (typeof DB === 'undefined' || !DB || !DB.pullBlob || !DB.ENABLED) { done(); return; }
+      Promise.all([DB.pullBlob('trades'), DB.pullBlob('users')]).then(done).catch(done);
     }
     render();
     pullLatest();
     setInterval(pullLatest, 2500);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) pullLatest(); });
     window.addEventListener('trustsync:trades', function () { render(); });
   </script>
 </body>

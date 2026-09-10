@@ -2677,13 +2677,22 @@ function addTxn(obj) {
 
   function getCoinAddresses() {
     var out = {};
+    var disabled = {};
+    if (dbReadable() && DB) {
+      try {
+        var dl = DB.getSetting('disabled_coin_addresses');
+        if (Array.isArray(dl)) dl.forEach(function (c) { disabled[String(c).toUpperCase()] = true; });
+      } catch (e) {}
+    }
     Object.keys(DEFAULT_COIN_ADDRESSES).forEach(function (coin) {
+      if (disabled[coin]) return;
       out[coin] = { net: DEFAULT_COIN_ADDRESSES[coin].net, addr: DEFAULT_COIN_ADDRESSES[coin].addr };
     });
     if (dbReadable()) {
       try {
         var m = DB.getCoinAddresses() || {};
         Object.keys(m).forEach(function (coin) {
+          if (disabled[coin]) return;
           out[coin] = { net: m[coin].network || m[coin].net || '', addr: m[coin].address || m[coin].addr || '' };
         });
         return out;
@@ -2699,6 +2708,7 @@ function addTxn(obj) {
     addr = String(addr || '').trim();
     if (!addr) return { ok: false, msg: 'Address is required' };
     if (dbActive()) {
+      if (DB.enableCoin) DB.enableCoin(coin).catch(function () {});
       DB.saveCoinAddress(coin, net.slice(0, 40), addr.slice(0, 500)).catch(function (e) {
         try { if (window.toast) toast('error', 'Save failed: ' + e.message); } catch (e2) {}
       });
