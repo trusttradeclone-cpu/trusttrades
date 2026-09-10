@@ -112,6 +112,19 @@
     var EXCHANGE_FEE = 0.1;
     var uid = TrustApp.getUserId();
 
+    // The DB session restore is async: getUserId() is null until it resolves,
+    // so we must re-derive the identity on every read instead of taking the
+    // boot-time snapshot (otherwise balances belong to the wrong account).
+    function refreshUid() {
+      var n = TrustApp.getUserId();
+      if (n !== uid) {
+        uid = n;
+        updateBals();
+        renderHist();
+      }
+      return uid;
+    }
+
     function allCoins() {
       var out = [];
       ['USDT', 'USDC'].forEach(function (c) { if (out.indexOf(c) === -1) out.push(c); });
@@ -140,6 +153,7 @@
     }
 
     function updateBals() {
+      refreshUid();
       var f = document.getElementById('fromCoin').value;
       var t = document.getElementById('toCoin').value;
       var elF = document.getElementById('fromBal');
@@ -167,6 +181,7 @@
 
     function getExchanges() {
       // Exchange history is stored as DB transactions (type 'exchange').
+      refreshUid();
       try {
         return (TrustApp.getTxns() || []).filter(function (t) { return t.type === 'exchange' && String(t.uid) === String(uid); }).map(function (t) {
           var m = /EX\s+(\S+)\s+([\d.]+)-\>\s*(\S+)\s+([\d.eE+\-]+)/.exec(t.description || t.note || '');
@@ -193,6 +208,8 @@
     }
 
     function doExchange() {
+      refreshUid();
+      if (!uid) { toast('error', TrustApp.t('common.loginRequired') || 'Please login first'); return; }
       var amt = parseFloat(document.getElementById('fromAmount').value) || 0;
       var f = document.getElementById('fromCoin').value, t = document.getElementById('toCoin').value;
       if (amt <= 0) { toast('error', TrustApp.t('exch.enterAmount')); return; }
@@ -226,6 +243,11 @@
       if (!document.hidden) updateBals();
     });
     setInterval(function () { updateBals(); renderHist(); }, 3000);
+    // The real identity only appears after the async session restore; refresh
+    // the balance + history the moment it lands so we never show another
+    // account's (or zero) balances.
+    if (TrustApp.restoreSession) TrustApp.restoreSession().then(function () { refreshUid(); });
+    if (window.DB && DB.onReady) DB.onReady(function () { refreshUid(); });
     updateBals();
     calc();
     renderHist();
