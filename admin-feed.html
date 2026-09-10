@@ -151,17 +151,16 @@
       }
       tb.innerHTML = list.slice(0, 15).map(tradeRow).join('');
     }
+    // Pull fresh rows from Supabase, then re-render. Works even when the
+    // realtime publication has not been enabled for tables on the live project,
+    // so new trades always stream into the feed instead of only on page reload.
+    function pullLatest() {
+      if (typeof DB === 'undefined' || !DB || !DB.pullBlob || !DB.ENABLED) { render(); return; }
+      Promise.all([DB.pullBlob('trades'), DB.pullBlob('users')]).then(function () { render(); }).catch(function () { render(); });
+    }
     render();
-    setInterval(function () {
-      var list = registeredUsersOnly(TrustApp.getTrades());
-      if (!list.length) { render(); return; }
-      var tb = document.getElementById('tradeFeed');
-      var first = list[0];
-      if (!tb.rows.length || tb.rows[0].getAttribute('data-id') !== first.id) {
-        tb.insertAdjacentHTML('afterbegin', tradeRow(first));
-        while (tb.rows.length > 15) tb.deleteRow(-1);
-      }
-    }, 2500);
+    pullLatest();
+    setInterval(pullLatest, 2500);
     window.addEventListener('trustsync:trades', function () { render(); });
   </script>
 </body>
