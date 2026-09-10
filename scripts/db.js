@@ -119,6 +119,7 @@ var TrustDB = (function () {
     // and the synchronous localStorage mirror seed for instant first paint).
     _applyRows: function (table, rows, startTs) {
       var self = this;
+      var keyField = self._keyField(table);
       var cache = self._cache[table === 'user_balances' ? 'userBalances' :
                     table === 'coin_addresses' ? 'coinAddresses' :
                     table === 'admin_settings' ? 'adminSettings' :
@@ -152,7 +153,6 @@ var TrustDB = (function () {
         // this snapshot was in flight. Without the merge, the older snapshot
         // would drop that row and it would disappear (e.g. a freshly bought
         // AI quant order vanishing after a page refresh).
-        var keyField = self._keyField(table);
         self._rowAt = self._rowAt || {};
         var incomingRows = {};
         rows.forEach(function (r) { incomingRows[r[keyField]] = r; });
