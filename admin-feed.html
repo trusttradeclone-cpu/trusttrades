@@ -151,16 +151,8 @@
       }
       tb.innerHTML = list.slice(0, 15).map(tradeRow).join('');
     }
-    // Pull fresh rows from Supabase, then re-render. Works even when the
-    // realtime publication has not been enabled for tables on the live project,
-    // so new trades always stream into the feed instead of only on page reload.
-    function pullLatest() {
-      if (typeof DB === 'undefined' || !DB || !DB.pullBlob || !DB.ENABLED) { render(); return; }
-      Promise.all([DB.pullBlob('trades'), DB.pullBlob('users')]).then(function () { render(); }).catch(function () { render(); });
-    }
     render();
-    pullLatest();
-    setInterval(pullLatest, 2500);
+    setInterval(function () { render(); }, 2500);
     window.addEventListener('trustsync:trades', function () { render(); });
   </script>
 </body>

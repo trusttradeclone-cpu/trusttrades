@@ -161,6 +161,7 @@
       try { applyI18n(); } catch (e) {}
       try { updateMenuUser(); } catch (e) {}
       try { migrateLegacyTrades(); } catch (e) {}
+      setTimeout(function () { try { settleExpiredTrades(); } catch (e) {} }, 0);
     }
     if (DB.onReady) DB.onReady(hook);
     if (typeof window !== 'undefined') {
@@ -2090,7 +2091,7 @@ function addTxn(obj) {
   function updateTrade(id, patch) {
     var t = null;
     var list = getTrades();
-    var dbId = _tradeIdMap[id] || id;
+    var dbId = (_tradeIdMap && _tradeIdMap[id]) || id;
     for (var i = 0; i < list.length; i++) {
       if (String(list[i].id) === String(id) || String(list[i].id) === String(dbId)) {
         for (var k in patch) list[i][k] = patch[k];
@@ -2110,6 +2111,51 @@ function addTxn(obj) {
       DB.updateTrade(String(dbId), p).catch(function () {});
     }
     return t;
+  }
+
+  // Auto-settle open trades whose duration has fully elapsed, so a user who
+  // placed a trade and left the page (or reloaded mid-countdown) still gets
+  // their capital + profit credited when the time completes. Mirrors the
+  // in-browser payout in trade.html: win credits amount + 20% odds profit;
+  // loss refunds amount - profit (same partial-refund rule). Runs once per
+  // boot on DB-ready; only open/elapsed rows are touched, so settled trades
+  // are never credited twice.
+  function settleExpiredTrades() {
+    if (!dbActive()) return;
+    var now = Date.now();
+    var list;
+    try { list = getTrades(); } catch (e) { return; }
+    var settledAny = false;
+    list.forEach(function (t) {
+      if (!t || t.status !== 'open') return;
+      var durMs = (parseInt(t.duration, 10) || 60) * 1000;
+      var start = Date.parse(t.createdAt || t.openedAt || t.opened_at || '');
+      if (!start) return;
+      if (now < start + durMs) return;
+      var uid = t.uid != null ? t.uid : getUserId();
+      var amt = parseFloat(t.amount) || 0;
+      var buyPrice = parseFloat(t.price) || 0;
+      var profitMode = (uid && typeof getProfitMode === 'function') ? getProfitMode(uid) : false;
+      var win = profitMode || Math.random() < 0.2;
+      var pct = amt * 20 / 100;
+      var profit = win ? pct : -pct;
+      settledAny = true;
+      if (uid) {
+        try {
+          if (win) addBalance(uid, 'USDT', amt + pct);
+          else addBalance(uid, 'USDT', amt - pct);
+        } catch (e) {}
+      }
+      updateTrade(t.id, {
+        status: win ? 'win' : 'loss',
+        sellPrice: buyPrice * (win ? 1.001 : 0.999),
+        settledAt: new Date(now).toISOString(),
+        profit: profit
+      });
+    });
+    if (settledAny && typeof window !== 'undefined') {
+      try { window.dispatchEvent(new CustomEvent('trustsync:trades')); } catch (e) {}
+    }
   }
 
   // One-time migration: push legacy/offline localStorage trades into Supabase.
