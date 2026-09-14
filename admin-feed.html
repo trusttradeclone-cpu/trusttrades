@@ -110,6 +110,9 @@
       var users = TrustApp.getUsers ? TrustApp.getUsers() : [];
       var names = {}, uids = {};
       users.forEach(function (u) {
+        // Feed is registered-users-only: wallet/guest logins (is_guest) stay out
+        // even though they now appear in the admin Users list.
+        if (u.isGuest) return;
         if (u.account) names[String(u.account).toLowerCase()] = true;
         if (u.uid) uids[String(u.uid)] = true;
       });

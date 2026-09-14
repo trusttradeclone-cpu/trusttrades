@@ -73,6 +73,24 @@
       </div>
     </div>
 
+    <div class="admin-panel" style="margin-bottom:16px;">
+      <div class="admin-panel-head">
+        <div class="ph-title"><span class="ph-dot" style="background:#7c3aed;"></span>Fund Limits <span class="ph-sub">&#183; minimum amounts users must meet to deposit / withdraw</span></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:14px;">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:#5b6472;margin-bottom:6px;">Minimum Deposit (USDT)</label>
+          <input type="number" id="fMinDep" min="0" step="1" class="form-input" style="width:170px;" value="100">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:#5b6472;margin-bottom:6px;">Minimum Withdrawal (USDT)</label>
+          <input type="number" id="fMinWd" min="0" step="1" class="form-input" style="width:170px;" value="20">
+        </div>
+        <button class="action-btn ab-green" id="saveLimits" style="padding:11px 18px;display:inline-flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Save limits</button>
+        <span class="muted" style="font-size:12px;margin-left:auto;">Saved limits apply to all users on the funds page.</span>
+      </div>
+    </div>
+
     <div class="admin-seg-tabs">
       <button class="admin-seg-btn active" data-fund-tab="dep"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18"></path><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path></svg>Deposits <span class="tab-cnt" id="tabCntDep">0</span></button>
       <button class="admin-seg-btn" data-fund-tab="wd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19h18"></path><path d="M12 15V3"></path><path d="m7 8 5-5 5 5"></path></svg>Withdrawals <span class="tab-cnt" id="tabCntWd">0</span></button>
@@ -244,6 +262,30 @@
         }).join('');
       }
     }
+    function loadLimits() {
+      var c = TrustApp.getConfig ? TrustApp.getConfig() : {};
+      var md = document.getElementById('fMinDep');
+      var mw = document.getElementById('fMinWd');
+      if (md) md.value = parseFloat(c.minRechargeAmount) || 0;
+      if (mw) mw.value = parseFloat(c.minWithdrawAmount) || 0;
+    }
+    var saveLimitsBtn = document.getElementById('saveLimits');
+    if (saveLimitsBtn) {
+      saveLimitsBtn.onclick = function () {
+        var vd = document.getElementById('fMinDep').value;
+        var vw = document.getElementById('fMinWd').value;
+        if (vd === '' || vw === '') { toast('error', 'Enter both amounts (0 disables the minimum)'); return; }
+        var md = Math.max(0, parseFloat(vd) || 0);
+        var mw = Math.max(0, parseFloat(vw) || 0);
+        if (!TrustApp.saveConfig) { toast('error', 'saveConfig unavailable'); return; }
+        var c = TrustApp.getConfig ? TrustApp.getConfig() : {};
+        c.minRechargeAmount = md;
+        c.minWithdrawAmount = mw;
+        TrustApp.saveConfig(c);
+        toast('success', 'Limits saved: min deposit ' + md + ' USDT, min withdrawal ' + mw + ' USDT');
+      };
+    }
+    if (TrustApp.getConfig && (window.DB && DB.onReady)) DB.onReady(loadLimits); else loadLimits();
     renderAll();
     function showFundTab(name) {
       document.querySelectorAll('.admin-seg-btn').forEach(function (b) {

@@ -518,8 +518,23 @@ renderCoins();
       document.getElementById('wdActual').textContent = (amt * wdRate).toFixed(2) + ' USDT';
     });
 
+    function refreshCfg() {
+      try {
+        var cfg = TrustApp.getConfig ? TrustApp.getConfig() : (AppConfig || {});
+        appCfg = cfg;
+        var depEl = document.getElementById('depAmount');
+        if (depEl) depEl.min = parseFloat(cfg.minRechargeAmount) || 0;
+        var wdEl = document.getElementById('wdAmount');
+        if (wdEl) wdEl.min = parseFloat(cfg.minWithdrawAmount) || 0;
+        feeRate = parseFloat(cfg.withdrawalFeeRate) || 0;
+        wdRate = 1 - feeRate / 100;
+        var feeEl = document.getElementById('wdFee');
+        if (feeEl) feeEl.textContent = feeRate + '%';
+      } catch (e) {}
+    }
     function refreshAll() {
       try {
+        refreshCfg();
         refreshIdentity();
         updateDepAmount();
         updateDepSubmit();
@@ -545,6 +560,7 @@ renderCoins();
     window.addEventListener('trustsync:transactions', refreshAll);
     window.addEventListener('trustsync:user_balances', refreshAll);
     window.addEventListener('trustsync:coin_addresses', refreshAddresses);
+    window.addEventListener('trustsync:admin_settings', function () { try { refreshCfg(); } catch (e) {} });
     window.addEventListener('storage', function (e) {
       if (e.key === null || e.key === 'trustTxns' || e.key === 'trustBalances') refreshAll();
     });

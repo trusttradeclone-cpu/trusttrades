@@ -1594,8 +1594,11 @@
   function getUsers() {
     if (dbReadable()) {
       try {
-        // Admin/user lists exclude guest blocks; accountByUid still finds them.
-        return (DB.getUsers() || []).filter(function (u) { return !u.is_guest; }).map(dbUserToApp);
+        // Admin/user lists exclude anonymous guest blocks (account = guest_*)
+        // but MUST include wallet-login accounts (created with is_guest flag).
+        return (DB.getUsers() || []).filter(function (u) {
+          return !u.is_guest || !/^guest_/i.test(String(u.account || ''));
+        }).map(dbUserToApp);
       } catch (e) {}
     }
     return [];

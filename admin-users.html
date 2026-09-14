@@ -148,8 +148,10 @@
     }
     function accCell(u) {
       var admin = TrustApp.isUserAdmin(u.uid);
-      return '<div class="user-cell"><div class="user-ava" style="background:' + (admin ? 'linear-gradient(135deg,#7c3aed,#a78bfa)' : 'linear-gradient(135deg,#1652f0,#3b6cff)') + ';">' + esc((u.account || '?').charAt(0).toUpperCase()) + '</div>'
-        + '<div class="user-meta"><div class="user-name">' + esc(u.account) + (admin ? ' <span class="pill-sm" style="background:#f3e8ff;color:#7c3aed;">ADMIN</span>' : '') + '</div><div class="user-uid">' + esc(u.uid) + '</div></div></div>';
+      var acc = String(u.account || '');
+      var wallet = /^0x[0-9a-f]{40}$/i.test(acc) || (/^[A-Za-z0-9]{40,}$/.test(acc) && /[a-z]/.test(acc));
+      return '<div class="user-cell"><div class="user-ava" style="background:' + (admin ? 'linear-gradient(135deg,#7c3aed,#a78bfa)' : (wallet ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg,#1652f0,#3b6cff)')) + ';">' + esc(acc.charAt(0).toUpperCase()) + '</div>'
+        + '<div class="user-meta"><div class="user-name">' + esc(acc) + (admin ? ' <span class="pill-sm" style="background:#f3e8ff;color:#7c3aed;">ADMIN</span>' : '') + (wallet ? ' <span class="pill-sm" style="background:#d1fae5;color:#047857;">WALLET</span>' : '') + '</div><div class="user-uid">' + esc(u.uid) + '</div></div></div>';
     }
     function verCell(u) {
       var v = TrustApp.getVerification ? TrustApp.getVerification(u.uid) : null;
