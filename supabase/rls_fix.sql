@@ -55,9 +55,13 @@ DROP POLICY IF EXISTS "anon_delete_chat" ON public.chat_messages;
 CREATE POLICY "anon_update_chat" ON public.chat_messages FOR UPDATE TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "anon_delete_chat" ON public.chat_messages FOR DELETE TO anon USING (true);
 
--- coin_addresses: update (edit address), delete (remove address)
+-- coin_addresses: read, add (insert), update (edit address), delete (remove address)
+DROP POLICY IF EXISTS "anon_read_addresses" ON public.coin_addresses;
+DROP POLICY IF EXISTS "anon_insert_addresses" ON public.coin_addresses;
 DROP POLICY IF EXISTS "anon_update_addresses" ON public.coin_addresses;
 DROP POLICY IF EXISTS "anon_delete_addresses" ON public.coin_addresses;
+CREATE POLICY "anon_read_addresses" ON public.coin_addresses FOR SELECT TO anon USING (true);
+CREATE POLICY "anon_insert_addresses" ON public.coin_addresses FOR INSERT TO anon WITH CHECK (true);
 CREATE POLICY "anon_update_addresses" ON public.coin_addresses FOR UPDATE TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "anon_delete_addresses" ON public.coin_addresses FOR DELETE TO anon USING (true);
 
