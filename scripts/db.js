@@ -887,19 +887,36 @@ var TrustDB = (function () {
     },
 
     // Trades writes
+    // PostgREST rejects the entire write if any key is not a real column, and a
+    // key carrying null still counts as present. Leaving `sellPrice` in the
+    // payload just because its value was null failed every new trade insert
+    // with PGRST204 "Could not find the 'sellPrice' column of 'trades'", so the
+    // trade was silently kept in localStorage and never reached the admin feed.
+    // Rename the camelCase fields, then drop them unconditionally.
+    _snakeCaseFields: function (payload, map) {
+      for (var camel in map) {
+        if (!Object.prototype.hasOwnProperty.call(map, camel)) continue;
+        var snake = map[camel];
+        if (payload[camel] != null) payload[snake] = payload[camel];
+        delete payload[camel];
+      }
+      return payload;
+    },
     addTrade: function (data) {
       var payload = Object.assign({}, data, { opened_at: new Date().toISOString() });
-      if (payload.created_at) delete payload.created_at;
-      if (payload.settledAt != null) { payload.settled_at = payload.settledAt; delete payload.settledAt; }
-      if (payload.sellPrice != null) { payload.sell_price = payload.sellPrice; delete payload.sellPrice; }
+      delete payload.created_at;
+      delete payload.createdAt;
+      this._snakeCaseFields(payload, {
+        settledAt: 'settled_at', sellPrice: 'sell_price', closedAt: 'closed_at'
+      });
       return this.q('trades', { method: 'POST', body: payload }).then(function (rows) { return rows[0]; });
     },
     updateTrade: function (id, patch) {
       var p = Object.assign({}, patch || {});
-      if (p.settledAt != null) { p.settled_at = p.settledAt; delete p.settledAt; }
-      if (p.sellPrice != null) { p.sell_price = p.sellPrice; delete p.sellPrice; }
-      if (p.closedAt != null) { p.closed_at = p.closedAt; delete p.closedAt; }
-      if (p.id) delete p.id;
+      this._snakeCaseFields(p, {
+        settledAt: 'settled_at', sellPrice: 'sell_price', closedAt: 'closed_at'
+      });
+      delete p.id;
       return this.q('trades?id=eq.' + id, { method: 'PATCH', body: p });
     },
 
