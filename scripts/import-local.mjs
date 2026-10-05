@@ -2,36 +2,23 @@
 //
 // Usage:
 //   1. In a browser, open export-local.html and download trust-backup.json.
-//   2. Service key is read from supabase/service-key.txt OR the
-//      SUPABASE_SERVICE_KEY env var. URL from supabase/service-url.txt OR
-//      SUPABASE_URL env var.
+//   2. Service key and URL come from the SUPABASE_SERVICE_KEY / SUPABASE_URL
+//      env vars ONLY. Never store them in this folder: everything under the
+//      site root is published to the internet, and a service-role key served
+//      publicly bypasses RLS completely.
 //   3. Run:   node scripts/import-local.mjs trust-backup.json
 //
 // This writes the app_meta blobs (so the site picks them up immediately) plus
 // the detailed tables, and records a row in `backups`.
 
 import { readFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const candidates = [here, join(here, '..', 'supabase')];
-const txt = (name) => {
-  for (const dir of candidates) {
-    const p = join(dir, name);
-    if (existsSync(p)) {
-      const v = readFileSync(p, 'utf8').trim();
-      if (v) return v;
-    }
-  }
-  return '';
-};
-
-const url = (process.env.SUPABASE_URL || txt('service-url.txt') || '').replace(/\/rest\/v1\/*$/, '').replace(/\/+$/, '');
-const key = process.env.SUPABASE_SERVICE_KEY || txt('service-key.txt') || '';
+const url = (process.env.SUPABASE_URL || '').replace(/\/rest\/v1\/*$/, '').replace(/\/+$/, '');
+const key = process.env.SUPABASE_SERVICE_KEY || '';
 
 if (!url || !key) {
-  console.error('Set SUPABASE_URL and SUPABASE_SERVICE_KEY (env), or create supabase/service-url.txt and supabase/service-key.txt.');
+  console.error('Set the SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables.');
+  console.error('Do not put the key in a file in this project: the site root is published to the internet.');
   process.exit(1);
 }
 
