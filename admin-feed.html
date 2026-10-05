@@ -45,12 +45,13 @@
           <span class="hero-chip" id="chipTrades">0 trades</span>
           <span class="hero-chip" id="chipBuys">0 buys</span>
           <span class="hero-chip" id="chipSells">0 sells</span>
+          <span class="hero-chip" id="chipWins">0W / 0L</span>
         </div>
       </div>
       <div class="admin-hero-live"><span class="live-dot"></span>LIVE</div>
     </div>
 
-    <div class="admin-stats grid-4">
+    <div class="admin-stats grid-4" style="grid-template-columns:repeat(auto-fit,minmax(165px,1fr));">
       <div class="stat-card sc-blue">
         <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M6 12h12"></path><path d="M9 18h6"></path></svg></div>
         <div><div class="muted" style="font-size:12px;font-weight:600;">Trades (24h)</div><div class="s-value" id="stTrades">0</div></div>
@@ -67,6 +68,14 @@
         <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
         <div><div class="muted" style="font-size:12px;font-weight:600;">Volume (24h)</div><div class="s-value" id="stVolume">$0.00</div></div>
       </div>
+      <div class="stat-card sc-green">
+        <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg></div>
+        <div><div class="muted" style="font-size:12px;font-weight:600;">Win Rate</div><div class="s-value" id="stWR">&mdash;</div></div>
+      </div>
+      <div class="stat-card sc-purple">
+        <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"></path><path d="M21 7h-6"></path><path d="M21 7v6"></path></svg></div>
+        <div><div class="muted" style="font-size:12px;font-weight:600;">Net P&amp;L (USDT)</div><div class="s-value" id="stNet">0.00</div></div>
+      </div>
     </div>
 
     <div class="admin-panel">
@@ -75,7 +84,7 @@
       </div>
       <div class="admin-table-wrap">
         <table>
-          <thead><tr><th>Pair</th><th>Side</th><th>Amount</th><th>Price</th><th>User</th></tr></thead>
+          <thead><tr><th>Pair</th><th>Side</th><th>Amount</th><th>Price</th><th>Result</th><th>P&amp;L</th><th>User</th></tr></thead>
           <tbody id="tradeFeed"></tbody>
         </table>
       </div>
@@ -127,29 +136,56 @@
       var cls = side === 'Sell' ? 'red' : 'green';
       var price = '$' + (parseFloat(t.price) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
       var amt = (parseFloat(t.amount) || 0).toLocaleString('en-US', { maximumFractionDigits: 4 });
-      return '<tr data-id="' + esc(t.id) + '"><td><span class="tag">' + esc(t.pair) + '</span></td><td><span class="badge ' + cls + '">' + side + '</span></td><td>' + amt + '</td><td><span class="money-cell">' + price + '</span></td><td>' + esc(t.user) + '</td></tr>';
+      // Settlement writes status 'win' | 'loss' and profit as +/-20% of the
+      // stake (app.js settleTrades). Anything else is still running.
+      var status = String(t.status || '').toLowerCase();
+      var isWin = status === 'win' || status === 'won';
+      var isLoss = status === 'loss' || status === 'lost';
+      var settled = isWin || isLoss;
+      var result = settled
+        ? '<span class="status-' + (isWin ? 'win' : 'loss') + '">' + (isWin ? 'Win' : 'Loss') + '</span>'
+        : '<span class="status-open">Open</span>';
+      var pl;
+      if (settled) {
+        var pnl = parseFloat(t.profit) || 0;
+        var plColor = pnl > 0 ? '#07c160' : (pnl < 0 ? '#f44336' : '#8a94a6');
+        pl = '<span style="font-weight:700;color:' + plColor + '">' + (pnl > 0 ? '+' : '') +
+             pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span>';
+      } else {
+        pl = '<span style="color:#8a94a6">&mdash;</span>';
+      }
+      return '<tr data-id="' + esc(t.id) + '"><td><span class="tag">' + esc(t.pair) + '</span></td><td><span class="badge ' + cls + '">' + side + '</span></td><td>' + amt + '</td><td><span class="money-cell">' + price + '</span></td><td>' + result + '</td><td>' + pl + '</td><td>' + esc(t.user) + '</td></tr>';
     }
     function renderStats() {
       var list = registeredUsersOnly(TrustApp.getTrades());
-      var buys = 0, sells = 0, vol = 0;
+      var buys = 0, sells = 0, vol = 0, wins = 0, losses = 0, net = 0;
       list.forEach(function (t) {
         if (t.side === 'down' || t.side === 'sell') sells++; else buys++;
         vol += (parseFloat(t.amount) || 0) * (parseFloat(t.price) || 0);
+        var status = String(t.status || '').toLowerCase();
+        if (status === 'win' || status === 'won') { wins++; net += (parseFloat(t.profit) || 0); }
+        else if (status === 'loss' || status === 'lost') { losses++; net += (parseFloat(t.profit) || 0); }
       });
+      var settled = wins + losses;
       document.getElementById('stTrades').textContent = list.length;
       document.getElementById('stBuys').textContent = buys;
       document.getElementById('stSells').textContent = sells;
       document.getElementById('stVolume').textContent = '$' + vol.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('stWR').textContent = settled ? Math.round(wins / settled * 100) + '%' : '—';
+      var netEl = document.getElementById('stNet');
+      netEl.textContent = (net > 0 ? '+' : '') + net.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      netEl.style.color = net > 0 ? '#07c160' : (net < 0 ? '#f44336' : '');
       document.getElementById('chipTrades').textContent = list.length + ' trades';
       document.getElementById('chipBuys').textContent = buys + ' buys';
       document.getElementById('chipSells').textContent = sells + ' sells';
+      document.getElementById('chipWins').textContent = wins + 'W / ' + losses + 'L';
     }
     function render() {
       var tb = document.getElementById('tradeFeed');
       var list = registeredUsersOnly(TrustApp.getTrades());
       renderStats();
       if (!list.length) {
-        tb.innerHTML = '<tr><td colspan="5"><div class="empty-state"><span class="es-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M6 12h12"></path><path d="M9 18h6"></path></svg></span>No user trades yet - trades appear here as registered users place orders</div></td></tr>';
+        tb.innerHTML = '<tr><td colspan="7"><div class="empty-state"><span class="es-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M6 12h12"></path><path d="M9 18h6"></path></svg></span>No user trades yet - trades appear here as registered users place orders</div></td></tr>';
         return;
       }
       tb.innerHTML = list.slice(0, 15).map(tradeRow).join('');
