@@ -867,6 +867,21 @@ var TrustDB = (function () {
     updateSession: function (token, patch) {
       return this.q('sessions?token=eq.' + encodeURIComponent(token), { method: 'PATCH', body: patch });
     },
+    // Insert-or-update on token. A plain PATCH silently updates nothing when the
+    // row is absent (PostgREST answers 200 with an empty array), which left the
+    // browser holding a session cookie that no row matched: every later page
+    // load read "no session" and bounced the user back to the login screen.
+    upsertSession: function (token, uid, extra) {
+      var payload = { token: token, uid: uid == null ? null : uid };
+      for (var k in (extra || {})) if (extra[k] !== undefined) payload[k] = extra[k];
+      payload.created_at = new Date().toISOString();
+      payload.expires_at = new Date(Date.now() + 30 * 24 * 3600000).toISOString();
+      return this.q('sessions?on_conflict=token', {
+        method: 'POST',
+        body: payload,
+        headers: { 'Prefer': 'return=representation,resolution=merge-duplicates' }
+      }).then(function (rows) { return rows && rows[0]; });
+    },
     deleteSession: function (token) {
       return this.q('sessions?token=eq.' + encodeURIComponent(token), { method: 'DELETE' });
     },

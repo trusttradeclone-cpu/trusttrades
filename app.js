@@ -1327,8 +1327,16 @@
     }
     return restoreSession().then(function (s) {
       if (s) return s;
-      return DB.createSession(tok, null, { language: lang }).then(function () {
-        _session = { token: tok, uid: null, is_guest: false, admin: false, language: lang };
+      // No row for this cookie (or the read gave up): create one. Only touch
+      // `language` if a row does turn up, so a retry that failed for network
+      // reasons can never clear a valid uid.
+      return DB.updateSession(tok, { language: lang }).then(function (rows) {
+        if (rows && rows.length) return _session;
+        return DB.createSession(tok, null, { language: lang }).catch(function () { return null; });
+      }).then(function () {
+        if (!_session || _session.token !== tok) {
+          _session = { token: tok, uid: null, is_guest: false, admin: false, language: lang };
+        }
         return _session;
       });
     });
@@ -1336,21 +1344,20 @@
 
   function _activateSession(uid, isGuest, admin, language) {
     var tok = getToken();
-    var applyLocal = function (t, p) {
-      _session = { token: t, uid: uid == null ? null : uid, is_guest: !!isGuest, admin: !!admin, language: language || null };
-      if (language && LANGS[language]) _lang = language;
-      return p;
-    };
-    if (tok) {
-      return applyLocal(tok, DB.updateSession(tok, {
-        uid: uid == null ? null : uid, is_guest: !!isGuest, admin: !!admin, language: language || null
-      }).then(function () { return _session; }));
+    if (!tok) {
+      tok = rndToken();
+      setToken(tok);
     }
-    tok = rndToken();
-    setToken(tok);
-    return applyLocal(tok, DB.createSession(tok, uid, {
+    _session = { token: tok, uid: uid == null ? null : uid, is_guest: !!isGuest, admin: !!admin, language: language || null };
+    if (language && LANGS[language]) _lang = language;
+    // Always upsert rather than PATCH: the cookie can outlive its row (a write
+    // aborted by a navigation, a cleared/reset database, a deleted session), and
+    // a PATCH that matches nothing still resolves successfully. That left the
+    // next page load with no session and bounced the user straight back to the
+    // login screen, on every login attempt, for that browser.
+    return DB.upsertSession(tok, uid, {
       is_guest: !!isGuest, admin: !!admin, language: language || null
-    }).then(function () { return _session; }));
+    }).then(function () { return _session; });
   }
 
   function _clearSession() {
@@ -1392,6 +1399,28 @@
 
   function dbActive() {
     return typeof DB !== 'undefined' && DB && DB.connected === true;
+  }
+
+  // Resolve once the DB has finished connecting (or the wait timed out).
+  // Login / sign-up used to bail out with "Database not configured" whenever
+  // the form was submitted during the bootstrap, which on a slow connection
+  // left the button spinning with no error. Waiting is the difference between
+  // "sign-in worked" and "sign-in silently did nothing".
+  // DB.ready() only resolves when the client *object* exists, so wait on the
+  // 'ready' event instead -- that is the one DB emits once connected is true.
+  function dbReady(timeoutMs) {
+    if (dbActive()) return Promise.resolve(true);
+    if (typeof DB === 'undefined' || !DB) return Promise.resolve(false);
+    return new Promise(function (res) {
+      var settled = false;
+      var finish = function (v) { if (settled) return; settled = true; res(!!v); };
+      if (typeof DB.onReady === 'function') {
+        try { DB.onReady(function () { finish(true); }); } catch (e) { finish(dbActive()); }
+      } else {
+        finish(dbActive());
+      }
+      setTimeout(function () { finish(dbActive()); }, timeoutMs || 30000);
+    });
   }
 
   // Read-only variant: cache is usable as soon as ANY snapshot is present
@@ -1618,17 +1647,21 @@
 
   function register(account, password, referralCode) {
     account = trim(account);
-    if (!account || !password) return { ok: false, msg: 'Please fill in all fields' };
-    if (typeof DB !== 'undefined' && DB.register && dbActive()) {
-      var lang = getLang();
-      // If a guest user row was created for this browser (service.html), convert
-      // it to a real account, preserving the UID and balance history.
+    if (!account || !password) return Promise.resolve({ ok: false, msg: 'Please fill in all fields' });
+    if (typeof DB === 'undefined' || !DB || !DB.register) {
+      return Promise.resolve({ ok: false, msg: 'Database not configured' });
+    }
+    var lang = getLang();
+    // If a guest user row was created for this browser (service.html), convert
+    // it to a real account, preserving the UID and balance history.
+    return dbReady().then(function (ready) {
+      if (!ready || !dbActive()) return { ok: false, msg: 'Database not configured' };
       var guestUid = (_session && _session.is_guest && _session.uid != null) ? _session.uid : null;
       var hasGuest = false;
       if (guestUid != null) {
         try { hasGuest = !!DB.getUserStr(guestUid); } catch (e) {}
       }
-      var guestPending = null;
+      var guestPending;
       if (hasGuest) {
         var g = DB.getUserStr(guestUid);
         var h = DB._hashPassword(password, g.created_at || new Date().toISOString());
@@ -1665,16 +1698,19 @@
           return _activateSession(res.user.uid, false, !!res.user.is_admin, lang).then(function () { return res; });
         }
         return res;
-      }).catch(function (e) { return { ok: false, msg: e.message }; });
-    }
-    return { ok: false, msg: 'Database not configured' };
+      });
+    }).catch(function (e) { return { ok: false, msg: e.message }; });
   }
 
   function login(account, password) {
     account = trim(account);
-    if (!account || !password) return { ok: false, msg: 'Please enter account and password' };
-    if (typeof DB !== 'undefined' && DB.login && dbActive()) {
-      var lang = getLang();
+    if (!account || !password) return Promise.resolve({ ok: false, msg: 'Please enter account and password' });
+    if (typeof DB === 'undefined' || !DB || !DB.login) {
+      return Promise.resolve({ ok: false, msg: 'Database not configured' });
+    }
+    var lang = getLang();
+    return dbReady().then(function (ready) {
+      if (!ready || !dbActive()) return { ok: false, msg: 'Database not configured' };
       return DB.login(account, password).then(function (res) {
         if (res.ok && res.user) {
           return _activateSession(res.user.uid, false, !!res.user.is_admin, lang).then(function () {
@@ -1683,9 +1719,8 @@
           });
         }
         return res;
-      }).catch(function (e) { return { ok: false, msg: e.message }; });
-    }
-    return { ok: false, msg: 'Database not configured' };
+      });
+    }).catch(function (e) { return { ok: false, msg: e.message }; });
   }
 
   function walletLogin(address) {
@@ -1755,7 +1790,16 @@
       var grant = function (tok) {
         _session = _session || { token: tok, uid: null, is_guest: false, admin: false, language: null };
         _session.admin = true;
-        if (tok) DB.updateSession(tok, { admin: true }).catch(function () {});
+        if (!tok) return;
+        // A PATCH that matches no row still reports success, so the unlock used
+        // to be silently lost on the next page load. Create the row in that
+        // case. `uid` is only ever set when there is no row to preserve.
+        DB.updateSession(tok, { admin: true }).then(function (rows) {
+          if (rows && rows.length) return null;
+          return DB.createSession(tok, _session.uid != null ? _session.uid : null, {
+            admin: true, language: _lang || langLabel('en')
+          });
+        }).catch(function () {});
       };
       var tok = getToken();
       if (tok) {
@@ -2926,12 +2970,24 @@ function addTxn(obj) {
         resolved = true;
         inFlight = false;
         decide(s);
-      });
-      setTimeout(function () {
+      }, function () {
+        resolved = true;
         inFlight = false;
-        if (redirected || resolved || (_session && _session.uid != null)) return;
         goLogin();
-      }, 8000);
+      });
+      // The grace period must not expire before restoreSession() even has the
+      // chance to answer: it only resolves once the whole DB bootstrap has
+      // finished, so a fixed 8s budget measured from page load threw away
+      // perfectly valid sessions whenever the network was slow. Start counting
+      // only once the DB is actually connected.
+      var t0 = Date.now();
+      var timer = setInterval(function () {
+        if (redirected || resolved) { clearInterval(timer); return; }
+        if (Date.now() - t0 < (dbActive() ? 8000 : 45000)) return;
+        clearInterval(timer);
+        if (_session && _session.uid != null) return;
+        goLogin();
+      }, 500);
     }
     function check() {
       if (redirected) return;
