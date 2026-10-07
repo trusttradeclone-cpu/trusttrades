@@ -253,10 +253,16 @@
       } else {
         wdBox.innerHTML = wds.map(function (t) {
           var dest = '';
-          if (t.method === 'bank') {
-            dest = '<div class="mc-sub">Bank card &#183; ' + esc((t.holder || '') + (t.bank ? ' &#183; ' + t.bank : '')) + ' &#183; ' + esc('****' + String(t.card || '').slice(-4)) + '</div>';
+          if (t.method === 'bank' || (!t.method && (t.holder || t.card))) {
+            var bBits = [esc(t.holder || ''), esc(t.bank || '')];
+            if (t.card) bBits.push('****' + esc(String(t.card).replace(/\s+/g, '').slice(-4)));
+            if (t.branch) bBits.push(esc(t.branch));
+            dest = '<div class="mc-sub">Bank card &#183; ' + bBits.filter(Boolean).join(' &#183; ') + '</div>';
           } else if (t.address) {
-            dest = '<div class="mc-sub">' + esc(t.address.slice(0, 30) + (t.address.length > 30 ? '...' : '')) + '</div>';
+            var addr = String(t.address);
+            dest = '<div class="mc-sub">' + esc(addr.slice(0, 30) + (addr.length > 30 ? '...' : '')) + '</div>';
+          } else if (t.note) {
+            dest = '<div class="mc-sub">' + esc(String(t.note).slice(0, 70)) + '</div>';
           }
           return '<tr data-id="' + esc(t.id) + '"><td><div class="user-cell"><div class="user-ava">' + esc((t.account || '?').charAt(0).toUpperCase()) + '</div><div class="user-meta"><div class="user-name">' + esc(t.account) + '</div><div class="user-uid">' + esc(t.uid) + '</div></div></div></td><td><span class="tag">' + esc(t.coin) + '</span></td><td><div class="money-cell">' + fmtAmt(t.amount, t.coin) + ' ' + esc(t.coin) + '</div>' + dest + '</td><td>' + wdBtns + '</td></tr>';
         }).join('');

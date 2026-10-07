@@ -1568,6 +1568,16 @@
         if (att && att.data) { proof = att.data; proofName = att.name || 'proof'; }
       } catch (e) {}
     }
+    // Withdrawal details: prefer the real columns; otherwise read the
+    // [WD_DETAILS] marker the insert falls back to when the migration that
+    // adds the columns has not been run yet.
+    var wd = {};
+    var wm = /\[WD_DETAILS\]([\s\S]*)$/.exec(note);
+    if (wm) {
+      note = note.slice(0, wm.index);
+      try { wd = JSON.parse(wm[1]) || {}; } catch (e) {}
+    }
+    function wdField(f) { return t[f] !== undefined && t[f] !== null && t[f] !== '' ? t[f] : (wd[f] || ''); }
     return {
       id: String(t.id),
       uid: t.uid,
@@ -1576,10 +1586,16 @@
       coin: t.coin || 'USDT',
       amount: parseFloat(t.amount) || 0,
       status: t.status || 'completed',
-      note: note,
+      note: note.replace(/\s+$/, ''),
       proof: proof,
       proof_name: proofName,
       proofName: proofName,
+      method: wdField('method'),
+      address: wdField('address'),
+      holder: wdField('holder'),
+      bank: wdField('bank'),
+      card: wdField('card'),
+      branch: wdField('branch'),
       createdAt: t.created_at,
       created_at: t.created_at,
       dir: dir,
@@ -1960,6 +1976,12 @@
 // Local pending transactions (for immediate confirm before DB sync)
   var _pendingTxns = {};
 
+// Withdrawal destination details the admin panel renders (crypto address,
+// bank card holder/number/branch). Carried on the local record and on the
+// DB write; if the table has not been migrated yet they are stashed inside
+// the description marker instead (see DB.addTransaction).
+  var WD_FIELDS = ['method', 'address', 'holder', 'bank', 'card', 'branch'];
+
 function addTxn(obj) {
     var t = {
       id: genId(obj.type || 'TXN'),
@@ -1976,12 +1998,16 @@ function addTxn(obj) {
       db: false,
       dbId: null
     };
+    var wdPayload = {};
+    WD_FIELDS.forEach(function (f) {
+      if (obj[f] !== undefined && obj[f] !== null) { t[f] = obj[f]; wdPayload[f] = obj[f]; }
+    });
     _pendingTxns[t.id] = t;
     if (dbActive()) {
       var dir = obj.dir === 'debit' ? 'debit' : 'credit';
       var note = obj.note || '';
       var desc = '[' + dir + '] ' + (obj.account && obj.account !== obj.uid ? obj.account + ' ' : '') + note;
-      DB.addTransaction({
+      DB.addTransaction(Object.assign({
         uid: obj.uid || null,
         type: obj.type || 'deposit',
         coin: obj.coin || 'USDT',
@@ -1991,7 +2017,7 @@ function addTxn(obj) {
         description: desc,
         proof: obj.proof || '',
         proof_name: obj.proofName || ''
-      }).then(function (row) {
+      }, wdPayload)).then(function (row) {
         if (row && row.id) {
           _txnIdMap[t.id] = row.id;
           t.db = true;

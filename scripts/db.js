@@ -654,9 +654,23 @@ var TrustDB = (function () {
           // column, not break the deposit): retry without the image columns. The
           // attachment is stashed inside description so it is never lost and can
           // be surfaced by dbTxnToApp even before the migration adds columns.
-          if (converted.proof !== undefined || converted.proof_name !== undefined) {
+          // Same fallback for withdrawal destination columns (method/address/
+          // holder/bank/card/branch): if those columns are missing the insert
+          // is retried without them and the details go into a [WD_DETAILS]
+          // marker in description instead.
+          var WD_COLS = ['method', 'address', 'holder', 'bank', 'card', 'branch'];
+          var hasProof = converted.proof !== undefined || converted.proof_name !== undefined;
+          var hasWd = WD_COLS.some(function (c) { return converted[c] !== undefined; });
+          if (hasProof || hasWd) {
+            var skip = { proof: 1, proof_name: 1 };
+            WD_COLS.forEach(function (c) { skip[c] = 1; });
             var slim = {};
-            for (var k in converted) if (k !== 'proof' && k !== 'proof_name') slim[k] = converted[k];
+            for (var k in converted) if (!skip[k]) slim[k] = converted[k];
+            var wd = {};
+            WD_COLS.forEach(function (c) { if (converted[c]) wd[c] = converted[c]; });
+            if (Object.keys(wd).length) {
+              slim.description = (slim.description || '') + '\n' + '[WD_DETAILS]' + JSON.stringify(wd);
+            }
             if (converted.proof) {
               slim.description = (slim.description || '') + '\n' + '[PROOF_ATTACHMENT]' + JSON.stringify({ name: converted.proof_name || 'proof', data: converted.proof });
             }
