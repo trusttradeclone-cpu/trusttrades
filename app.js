@@ -298,7 +298,29 @@
         { s: 'CRM', n: 'Salesforce',         price: 282.10,  change: 1.05,  dec: 2, l: 'CR', i: 'stocks/CRM.svg' },
         { s: 'SBUX', n: 'Starbucks',         price: 92.40,   change: 0.58,  dec: 2, l: 'SB', i: 'stocks/SBUX.svg' },
         { s: 'NKE', n: 'Nike',               price: 78.60,   change: -0.52, dec: 2, l: 'NK', i: 'stocks/NKE.svg' },
-        { s: 'INTC', n: 'Intel',             price: 38.90,   change: 2.14,  dec: 2, l: 'IN', i: 'stocks/INTC.svg' }
+        { s: 'INTC', n: 'Intel',             price: 38.90,   change: 2.14,  dec: 2, l: 'IN', i: 'stocks/INTC.svg' },
+        { s: 'PLTR', n: 'Palantir',          price: 88.40,   change: 2.85,  dec: 2, l: 'PL', i: 'stocks/PLTR.png' },
+        { s: 'COIN', n: 'Coinbase',          price: 318.60,  change: 4.12,  dec: 2, l: 'CN', i: 'stocks/COIN.png' },
+        { s: 'HOOD', n: 'Robinhood',         price: 112.30,  change: 3.94,  dec: 2, l: 'HO', i: 'stocks/HOOD.png' },
+        { s: 'SOFI', n: 'SoFi Technologies', price: 18.75,   change: 1.22,  dec: 2, l: 'SF', i: 'stocks/SOFI.png' },
+        { s: 'PYPL', n: 'PayPal',            price: 91.50,   change: 0.98,  dec: 2, l: 'PY', i: 'stocks/PYPL.png' },
+        { s: 'UBER', n: 'Uber',              price: 74.20,   change: -0.65, dec: 2, l: 'UB', i: 'stocks/UBER.png' },
+        { s: 'SHOP', n: 'Shopify',           price: 122.40,  change: 1.78,  dec: 2, l: 'SP', i: 'stocks/SHOP.png' },
+        { s: 'MARA', n: 'MARA Holdings',     price: 24.85,   change: 5.30,  dec: 2, l: 'MR', i: 'stocks/MARA.svg' },
+        { s: 'RIVN', n: 'Rivian',            price: 13.60,   change: -1.92, dec: 2, l: 'RV', i: 'stocks/RIVN.png' },
+        { s: 'NIO', n: 'NIO Inc.',           price: 4.85,    change: 2.33,  dec: 2, l: 'NI', i: 'stocks/NIO.png' },
+        { s: 'GME', n: 'GameStop',           price: 26.40,   change: 1.44,  dec: 2, l: 'GM', i: 'stocks/GME.png' },
+        { s: 'AMC', n: 'AMC Entertainment',  price: 3.15,    change: 2.18,  dec: 2, l: 'AC', i: 'stocks/AMC.png' },
+        { s: 'XOM', n: 'Exxon Mobil',        price: 118.20,  change: 0.31,  dec: 2, l: 'XO', i: 'stocks/XOM.png' },
+        { s: 'UNH', n: 'UnitedHealth',       price: 578.40,  change: -0.44, dec: 2, l: 'UH', i: 'stocks/UNH.png' },
+        { s: 'LLY', n: 'Eli Lilly',          price: 915.30,  change: 0.82,  dec: 2, l: 'LL', i: 'stocks/LLY.png' },
+        { s: 'BA', n: 'Boeing',              price: 175.60,  change: 1.05,  dec: 2, l: 'BE', i: 'stocks/BA.png' },
+        { s: 'TSM', n: 'Taiwan Semi.',       price: 198.80,  change: 2.12,  dec: 2, l: 'TM', i: 'stocks/TSM.png' },
+        { s: 'QCOM', n: 'Qualcomm',          price: 172.35,  change: 0.68,  dec: 2, l: 'QC', i: 'stocks/QCOM.png' },
+        { s: 'T', n: 'AT&T',                 price: 24.10,   change: 0.52,  dec: 2, l: 'TA', i: 'stocks/T.png' },
+        { s: 'F', n: 'Ford',                 price: 11.85,   change: -1.35, dec: 2, l: 'FD', i: 'stocks/F.png' },
+        { s: 'GE', n: 'GE Aerospace',        price: 212.75,  change: 1.66,  dec: 2, l: 'GE', i: 'stocks/GE.png' },
+        { s: 'DKNG', n: 'DraftKings',        price: 52.30,   change: 2.47,  dec: 2, l: 'DK', i: 'stocks/DKNG.png' }
       ]
     };
   }
