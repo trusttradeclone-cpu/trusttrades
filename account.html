@@ -60,32 +60,34 @@
       <h3 class="section-title" data-i18n="acc.yourWallets">Your Wallets</h3>
     </div>
 
-    <div class="total-balance">
-      <div class="total-label" data-i18n="acc.estimatedTotal">Estimated Total Value</div>
-      <div class="total-value" id="balTotal">$ 0.00</div>
+    <div class="wallet-tabs" role="tablist">
+      <button type="button" class="wallet-tab active" data-wallet="coins" data-i18n="acc.tabCoins">Coins</button>
+      <button type="button" class="wallet-tab" data-wallet="stocks" data-i18n="acc.tabStocks">Stocks</button>
     </div>
 
-    <div class="wallet-list" id="walletList"></div>
-  </section>
+    <div class="wallet-pane" id="paneCoins">
+      <div class="total-balance">
+        <div class="total-label" data-i18n="acc.estimatedTotal">Estimated Total Value</div>
+        <div class="total-value" id="balTotal">$ 0.00</div>
+      </div>
 
-  <section class="wallet-section" id="stockSection" style="display:none;">
-    <div class="section-header">
-      <div class="select-line"></div>
-      <h3 class="section-title" data-i18n="acc.stockHoldings">Stock Holdings</h3>
+      <div class="wallet-list" id="walletList"></div>
     </div>
 
-    <div class="total-balance">
-      <div class="total-label" data-i18n="acc.stockValue">Stock Portfolio Value</div>
-      <div class="total-value" id="stTotalValue">$ 0.00</div>
-    </div>
+    <div class="wallet-pane" id="stockSection" hidden>
+      <div class="total-balance">
+        <div class="total-label" data-i18n="acc.stockValue">Stock Portfolio Value</div>
+        <div class="total-value" id="stTotalValue">$ 0.00</div>
+      </div>
 
-    <div class="stock-profit-grid">
-      <div class="spg-item"><span class="spg-label" data-i18n="acc.unrealizedPnl">Unrealized P&amp;L</span><b id="stUnrealized">$ 0.00</b></div>
-      <div class="spg-item"><span class="spg-label" data-i18n="acc.realizedProfit">Realized Profit</span><b id="stRealized">$ 0.00</b></div>
-      <div class="spg-item"><span class="spg-label" data-i18n="acc.totalProfit">Total Profit</span><b id="stTotalProfit">$ 0.00</b></div>
-    </div>
+      <div class="stock-profit-grid">
+        <div class="spg-item"><span class="spg-label" data-i18n="acc.unrealizedPnl">Unrealized P&amp;L</span><b id="stUnrealized">$ 0.00</b></div>
+        <div class="spg-item"><span class="spg-label" data-i18n="acc.realizedProfit">Realized Profit</span><b id="stRealized">$ 0.00</b></div>
+        <div class="spg-item"><span class="spg-label" data-i18n="acc.totalProfit">Total Profit</span><b id="stTotalProfit">$ 0.00</b></div>
+      </div>
 
-    <div class="wallet-list" id="stockList"></div>
+      <div class="wallet-list" id="stockList"></div>
+    </div>
   </section>
 
   <div class="toast-overlay" id="toastBox"></div>
@@ -212,19 +214,33 @@
       return d && d.n ? d.n : sym;
     }
 
+    // The Coins/Stocks bar under "Your Wallets" swaps which pane is shown. The
+    // choice is remembered so a stock trader lands back on their positions.
+    function setWalletTab(name) {
+      if (name !== 'coins' && name !== 'stocks') name = 'coins';
+      document.querySelectorAll('.wallet-tabs .wallet-tab').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-wallet') === name);
+      });
+      var coins = document.getElementById('paneCoins');
+      var stocks = document.getElementById('stockSection');
+      if (coins) coins.hidden = name !== 'coins';
+      if (stocks) stocks.hidden = name !== 'stocks';
+      try { localStorage.setItem('trust_wallet_tab', name); } catch (e) {}
+    }
+
+    document.querySelectorAll('.wallet-tabs .wallet-tab').forEach(function (b) {
+      b.addEventListener('click', function () { setWalletTab(b.getAttribute('data-wallet')); });
+    });
+
     // Buy-and-hold positions live in the `trades` table with a STOCK: prefix
     // (see app.js), so this reads the same rows the market tab writes.
     function renderStocks() {
-      var box = document.getElementById('stockSection');
-      if (!box || !TrustApp.getStockPortfolio) return;
+      if (!TrustApp.getStockPortfolio) return;
       var p;
       try { p = TrustApp.getStockPortfolio(); } catch (e) { return; }
 
-      // Keep the section visible after everything is sold so realized profit
-      // stays readable; hide it only for an account that never traded stocks.
-      if (!p.holdings.length && !p.closed) { box.style.display = 'none'; return; }
-      box.style.display = '';
-
+      // The pane itself is always reachable from the tab; only its contents
+      // change, so realized profit stays readable after a full sell-out.
       setTxt('stTotalValue', '$ ' + fmt(p.value, 2));
       paintSigned('stUnrealized', p.pnl);
       paintSigned('stRealized', p.realized);
@@ -236,11 +252,12 @@
         list.innerHTML = '<div class="stock-empty">' + (TrustApp.t ? TrustApp.t('acc.noOpenStocks') : 'No open stock positions.') + '</div>';
         return;
       }
+      var logo = TrustApp.stockLogoHtml || function () { return ''; };
       list.innerHTML = p.holdings.map(function (h) {
         var pct = h.pnlPct;
         return '<div class="wallet-item" onclick="location.href=\'index.html?tab=stocks\'">'
           + '<div class="wallet-info">'
-          + '<div class="stock-badge">' + esc(String(h.symbol).substring(0, 2).toUpperCase()) + '</div>'
+          + logo(h.symbol)
           + '<div class="wallet-details"><h4 class="coin-name">' + esc(h.symbol) + '</h4>'
           + '<p class="coin-subtitle">' + esc(stockName(h.symbol)) + ' &middot; ' + h.shares + ' sh @ $' + fmt(h.avg, 2) + '</p></div></div>'
           + '<div class="wallet-balance">'
@@ -250,6 +267,10 @@
           + '</div></div>';
       }).join('');
     }
+
+    var savedWalletTab = 'coins';
+    try { savedWalletTab = localStorage.getItem('trust_wallet_tab') || 'coins'; } catch (e) {}
+    setWalletTab(savedWalletTab);
 
     // Instant initial render from cache if available
     if (TrustApp.getBalances) {

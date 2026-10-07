@@ -159,6 +159,7 @@
   <div class="stock-ticket" id="stockTicket" onclick="closeStockTicket()">
     <div class="st-card" onclick="event.stopPropagation()">
       <div class="st-head">
+        <div class="st-logo" id="stLogo"></div>
         <div class="st-heading">
           <div class="st-title" id="stTitle">AAPL</div>
           <div class="st-sub" id="stName"></div>
@@ -207,7 +208,13 @@
       var html = '';
       for (var i = 0; i < data.length; i++) {
         var d = data[i];
-        var icon = d.i ? '<img src="img/' + d.i + '" alt="' + d.s + '">' : '<span class="coin-letter">' + (d.l || d.s.charAt(0)) + '</span>';
+        var letter = d.l || d.s.charAt(0);
+        var icon = d.i
+          // Logo chip with the badge kept behind it, so a 404 falls back to a
+          // readable letter instead of a broken-image glyph.
+          ? '<img src="img/' + d.i + '" alt="" onerror="this.nextElementSibling.style.display=\'flex\';this.remove()">'
+            + '<span class="coin-letter" style="display:none">' + letter + '</span>'
+          : '<span class="coin-letter">' + letter + '</span>';
         var prefix = TrustApp.pricePrefix(d);
         // Stocks open the buy/hold ticket here instead of trade.html, which is
         // the fixed-duration options form and cannot price a share position.
@@ -282,6 +289,8 @@
 
       document.getElementById('stTitle').textContent = sym;
       document.getElementById('stName').textContent = d.n;
+      var stLogo = document.getElementById('stLogo');
+      if (stLogo) stLogo.innerHTML = TrustApp.stockLogoHtml ? TrustApp.stockLogoHtml(sym) : '';
       document.getElementById('stPrice').textContent = TrustApp.pricePrefix(d) + TrustApp.fmtPrice(d.price, d.dec);
       document.getElementById('stBal').textContent = bal.toFixed(2);
       document.getElementById('stHeld').textContent = held.shares
@@ -340,7 +349,8 @@
       var rows = '';
       p.holdings.forEach(function (h) {
         rows += '<div class="sp-row">'
-          + '<div class="sp-sym"><b>' + h.symbol + '</b><span>' + h.shares + ' sh @ ' + money(h.avg) + '</span></div>'
+          + '<div class="sp-sym">' + (TrustApp.stockLogoHtml ? TrustApp.stockLogoHtml(h.symbol, 'sm') : '')
+          + '<div><b>' + h.symbol + '</b><span>' + h.shares + ' sh @ ' + money(h.avg) + '</span></div></div>'
           + '<div class="sp-nums"><b>' + money(h.value) + '</b><span class="' + (h.pnl >= 0 ? 'positive' : 'negative') + '">'
           + (h.pnl >= 0 ? '+' : '') + h.pnl.toFixed(2) + ' (' + (h.pnl >= 0 ? '+' : '') + h.pnlPct.toFixed(2) + '%)</span></div>'
           + '<div class="sp-actions"><button class="sp-btn" onclick="openStockTicket(\'' + h.symbol + '\')">Trade</button></div>'

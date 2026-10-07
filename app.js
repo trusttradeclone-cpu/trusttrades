@@ -268,24 +268,37 @@
         { s: 'USD', n: 'CNY', price: 6.7289, change: -0.24, dec: 4, i: 'USD_CNY.svg' },
         { s: 'USD', n: 'JPY', price: 111.467, change: 0.08, dec: 3, i: 'USD_JPY.svg' }
       ],
-      // Buy-and-hold equities. `l` is the badge shown where coins show a
-      // single letter; no matching file exists in img/ for these tickers.
+      // Buy-and-hold equities. `l` is the two-letter badge shown when no logo
+      // file exists for the ticker; `i` points at a brand logo under img/.
       stocks: [
-        { s: 'AAPL', n: 'Apple Inc.',        price: 278.50,   change: 0.84,  dec: 2, l: 'AP' },
-        { s: 'MSFT', n: 'Microsoft',         price: 512.30,   change: 1.12,  dec: 2, l: 'MS' },
-        { s: 'NVDA', n: 'NVIDIA',            price: 198.75,   change: 3.47,  dec: 2, l: 'NV' },
-        { s: 'GOOGL', n: 'Alphabet',         price: 315.40,   change: 0.62,  dec: 2, l: 'GO' },
-        { s: 'AMZN', n: 'Amazon',            price: 254.80,   change: -0.41, dec: 2, l: 'AM' },
-        { s: 'META', n: 'Meta Platforms',    price: 745.20,   change: 1.95,  dec: 2, l: 'ME' },
-        { s: 'TSLA', n: 'Tesla',             price: 428.60,   change: -2.18, dec: 2, l: 'TS' },
-        { s: 'BRK.B', n: 'Berkshire',        price: 492.10,   change: 0.35,  dec: 2, l: 'BR' },
-        { s: 'JPM', n: 'JPMorgan Chase',     price: 318.75,   change: 0.74,  dec: 2, l: 'JP' },
-        { s: 'V', n: 'Visa',                 price: 372.40,   change: 0.51,  dec: 2, l: 'VI' },
-        { s: 'NFLX', n: 'Netflix',           price: 1180.50,  change: 2.26,  dec: 2, l: 'NF' },
-        { s: 'AMD', n: 'AMD',                price: 215.30,   change: -1.34, dec: 2, l: 'AD' },
-        { s: 'AVGO', n: 'Broadcom',          price: 385.90,   change: 1.68,  dec: 2, l: 'AV' },
-        { s: 'COST', n: 'Costco',            price: 1045.20,  change: 0.44,  dec: 2, l: 'CO' },
-        { s: 'WMT', n: 'Walmart',            price: 118.65,   change: 0.29,  dec: 2, l: 'WM' }
+        { s: 'AAPL', n: 'Apple Inc.',        price: 278.50,  change: 0.84,  dec: 2, l: 'AP', i: 'stocks/AAPL.svg' },
+        { s: 'MSFT', n: 'Microsoft',         price: 512.30,  change: 1.12,  dec: 2, l: 'MS', i: 'stocks/MSFT.svg' },
+        { s: 'NVDA', n: 'NVIDIA',            price: 198.75,  change: 3.47,  dec: 2, l: 'NV', i: 'stocks/NVDA.svg' },
+        { s: 'GOOGL', n: 'Alphabet',         price: 315.40,  change: 0.62,  dec: 2, l: 'GO', i: 'stocks/GOOGL.svg' },
+        { s: 'AMZN', n: 'Amazon',            price: 254.80,  change: -0.41, dec: 2, l: 'AM', i: 'stocks/AMZN.svg' },
+        { s: 'META', n: 'Meta Platforms',    price: 745.20,  change: 1.95,  dec: 2, l: 'ME', i: 'stocks/META.svg' },
+        { s: 'TSLA', n: 'Tesla',             price: 428.60,  change: -2.18, dec: 2, l: 'TS', i: 'stocks/TSLA.svg' },
+        { s: 'BRK.B', n: 'Berkshire',        price: 492.10,  change: 0.35,  dec: 2, l: 'BR' },
+        { s: 'JPM', n: 'JPMorgan Chase',     price: 318.75,  change: 0.74,  dec: 2, l: 'JP', i: 'stocks/JPM.svg' },
+        { s: 'V', n: 'Visa',                 price: 372.40,  change: 0.51,  dec: 2, l: 'VI', i: 'stocks/V.svg' },
+        { s: 'NFLX', n: 'Netflix',           price: 1180.50, change: 2.26,  dec: 2, l: 'NF', i: 'stocks/NFLX.svg' },
+        { s: 'AMD', n: 'AMD',                price: 215.30,  change: -1.34, dec: 2, l: 'AD', i: 'stocks/AMD.svg' },
+        { s: 'AVGO', n: 'Broadcom',          price: 385.90,  change: 1.68,  dec: 2, l: 'AV', i: 'stocks/AVGO.svg' },
+        { s: 'COST', n: 'Costco',            price: 1045.20, change: 0.44,  dec: 2, l: 'CO', i: 'stocks/COST.ico' },
+        { s: 'WMT', n: 'Walmart',            price: 118.65,  change: 0.29,  dec: 2, l: 'WM', i: 'stocks/WMT.svg' },
+        { s: 'DIS', n: 'Walt Disney',        price: 118.40,  change: 0.86,  dec: 2, l: 'DI', i: 'stocks/DIS.png' },
+        { s: 'KO', n: 'Coca-Cola',           price: 78.20,   change: 0.33,  dec: 2, l: 'KO', i: 'stocks/KO.svg' },
+        { s: 'PEP', n: 'PepsiCo',            price: 152.80,  change: -0.28, dec: 2, l: 'PE', i: 'stocks/PEP.svg' },
+        { s: 'JNJ', n: 'Johnson & Johnson',  price: 172.50,  change: 0.41,  dec: 2, l: 'JJ', i: 'stocks/JNJ.png' },
+        { s: 'PG', n: 'Procter & Gamble',    price: 168.90,  change: 0.24,  dec: 2, l: 'PG', i: 'stocks/PG.jpg' },
+        { s: 'HD', n: 'Home Depot',          price: 412.30,  change: 0.67,  dec: 2, l: 'HD', i: 'stocks/HD.png' },
+        { s: 'MCD', n: "McDonald's",         price: 318.70,  change: 0.19,  dec: 2, l: 'MC', i: 'stocks/MCD.svg' },
+        { s: 'ORCL', n: 'Oracle',            price: 268.40,  change: 1.42,  dec: 2, l: 'OR', i: 'stocks/ORCL.svg' },
+        { s: 'ADBE', n: 'Adobe',             price: 395.60,  change: -0.74, dec: 2, l: 'AB', i: 'stocks/ADBE.svg' },
+        { s: 'CRM', n: 'Salesforce',         price: 282.10,  change: 1.05,  dec: 2, l: 'CR', i: 'stocks/CRM.svg' },
+        { s: 'SBUX', n: 'Starbucks',         price: 92.40,   change: 0.58,  dec: 2, l: 'SB', i: 'stocks/SBUX.svg' },
+        { s: 'NKE', n: 'Nike',               price: 78.60,   change: -0.52, dec: 2, l: 'NK', i: 'stocks/NKE.svg' },
+        { s: 'INTC', n: 'Intel',             price: 38.90,   change: 2.14,  dec: 2, l: 'IN', i: 'stocks/INTC.svg' }
       ]
     };
   }
@@ -891,6 +904,9 @@
     'acc.realizedProfit': { en: 'Realized Profit', zh: '已实现收益', ja: '実現損益', ko: '실현 손익', fa: 'سود محقق‌شده', de: 'Realisierter Gewinn', fr: 'Profit réalisé', es: 'Ganancia realizada', it: 'Utile realizzato', pt: 'Lucro realizado', ru: 'Реализованная прибыль' },
     'acc.totalProfit': { en: 'Total Profit', zh: '总收益', ja: '合計損益', ko: '총 손익', fa: 'سود کل', de: 'Gesamtgewinn', fr: 'Profit total', es: 'Ganancia total', it: 'Utile totale', pt: 'Lucro total', ru: 'Общая прибыль' },
     'acc.noOpenStocks': { en: 'No open stock positions.', zh: '暂无持仓的股票。', ja: '保有中の銘柄はありません。', ko: '보유 중인 주식이 없습니다.', fa: 'هیچ سهمی در اختیار نیست.', de: 'Keine offenen Aktienpositionen.', fr: 'Aucune position ouverte.', es: 'No hay posiciones abiertas.', it: 'Nessuna posizione aperta.', pt: 'Nenhuma posição aberta.', ru: 'Открытых позиций нет.' },
+    'acc.tabCoins': { en: 'Coins', zh: '币种', ja: 'コイン', ko: '코인', fa: 'سکه‌ها', de: 'Münzen', fr: 'Pièces', es: 'Monedas', it: 'Monete', pt: 'Moedas', ru: 'Монеты' },
+    'acc.tabStocks': { en: 'Stocks', zh: '股票', ja: '株式', ko: '주식', fa: 'سهام', de: 'Aktien', fr: 'Actions', es: 'Acciones', it: 'Azioni', pt: 'Ações', ru: 'Акции' },
+    'acc.walletCoinsEmpty': { en: 'No wallet balances yet.', zh: '暂无钱包余额。', ja: '残高はありません。', ko: '잔액이 없습니다.', fa: 'موجودی کیف پولی نیست.', de: 'Noch keine Guthaben.', fr: 'Aucun solde.', es: 'Aún no hay saldos.', it: 'Nessun saldo.', pt: 'Ainda sem saldos.', ru: 'Балансов пока нет.' },
 
     /* ---- funds ---- */
     'funds.title': { en: 'Funds Management', zh: '资金管理', ja: '資金管理', ko: '자금 관리', fa: 'مدیریت سرمایه', de: 'Geldverwaltung', fr: 'Gestion des fonds', es: 'Gestión de fondos', it: 'Gestione fondi', pt: 'Gestão de fundos', ru: 'Управление средствами' },
@@ -2261,6 +2277,23 @@ function addTxn(obj) {
     return d ? (parseFloat(d.price) || 0) : 0;
   }
 
+  // Brand logo chip for a ticker. The two-letter badge sits behind the image so
+  // a missing or broken file still renders as a readable chip instead of the
+  // browser's broken-image glyph.
+  function stockLogoHtml(symbol, cls) {
+    var d = findCoin(symbol);
+    var letter = String(symbol || '').replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || '?';
+    var hasImg = !!(d && d.i);
+    var html = '<span class="stk-logo' + (cls ? ' ' + cls : '') + '">';
+    if (hasImg) {
+      html += '<img src="img/' + d.i + '" alt="" '
+        + 'onerror="this.nextElementSibling.style.display=\'flex\';this.remove()">';
+    }
+    html += '<span class="stk-fb"' + (hasImg ? ' style="display:none"' : '') + '>'
+      + escHtml(letter) + '</span></span>';
+    return html;
+  }
+
   function getStockPortfolio() {
     var out = { holdings: [], value: 0, cost: 0, pnl: 0, realized: 0, closed: 0, total: 0 };
     var rows = getStockHoldings();
@@ -2290,16 +2323,27 @@ function addTxn(obj) {
   }
 
   // Every user's open stock positions, for the admin dashboard. One entry per
-  // user+symbol, aggregated across lots, ordered by market value.
+  // user+symbol, aggregated across lots, ordered by market value. Realized P&L
+  // rides along so the table can show what a position has already banked.
   function getAllStockHoldings() {
     var byKey = {};
+    var realizedBy = {};
+    var closedBy = {};
     var out = [];
     if (!dbReadable()) return out;
     var list = [];
     try { list = DB.getTrades() || []; } catch (e) {}
     list.forEach(function (r) {
       var sym = stockSymbol(r.pair);
-      if (!sym || r.status !== 'held') return;
+      if (!sym) return;
+      // A lot is either open or closed, never both, so the two states can be
+      // summed without double counting (held lots carry partial-sale gains).
+      if (r.status === 'held' || r.status === 'win' || r.status === 'loss') {
+        var rk = String(r.uid) + '|' + sym;
+        realizedBy[rk] = (realizedBy[rk] || 0) + (parseFloat(r.profit) || 0);
+        if (r.status !== 'held') closedBy[rk] = (closedBy[rk] || 0) + 1;
+      }
+      if (r.status !== 'held') return;
       var shares = parseFloat(r.amount) || 0;
       if (shares <= 0) return;
       var key = String(r.uid) + '|' + sym;
@@ -2315,6 +2359,9 @@ function addTxn(obj) {
       h.value = h.market * h.shares;
       h.pnl = h.value - h.cost;
       h.pnlPct = h.cost > 0 ? (h.pnl / h.cost) * 100 : 0;
+      h.realized = realizedBy[k] || 0;
+      h.closed = closedBy[k] || 0;
+      h.totalPnl = h.pnl + h.realized;
       out.push(h);
     });
     out.sort(function (a, b) { return b.value - a.value; });
@@ -2332,6 +2379,18 @@ function addTxn(obj) {
       if (r.status === 'held' || r.status === 'win' || r.status === 'loss') total += parseFloat(r.profit) || 0;
     });
     return total;
+  }
+
+  // How many stock lots have been fully settled, for the admin stat card.
+  function getAllStockClosedCount() {
+    var n = 0;
+    if (!dbReadable()) return n;
+    var list = [];
+    try { list = DB.getTrades() || []; } catch (e) {}
+    list.forEach(function (r) {
+      if (stockSymbol(r.pair) && (r.status === 'win' || r.status === 'loss')) n++;
+    });
+    return n;
   }
 
   function buyStock(symbol, shares, price) {
@@ -3603,6 +3662,8 @@ function addTxn(obj) {
     getStockPortfolio: getStockPortfolio,
     getAllStockHoldings: getAllStockHoldings,
     getAllStockRealized: getAllStockRealized,
+    getAllStockClosedCount: getAllStockClosedCount,
+    stockLogoHtml: stockLogoHtml,
     stockQuote: stockQuote,
     stockSymbol: stockSymbol,
     watchStorage: watchStorage,

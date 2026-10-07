@@ -195,6 +195,53 @@
         <div class="ac-go">Open Customer Service <span class="go-arrow">&#8594;</span></div>
       </a>
     </div>
+
+    <div class="admin-cat"><span class="acat-bar"></span>Stock Holdings</div>
+    <div class="admin-stats grid-4" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));">
+      <div class="stat-card sc-blue">
+        <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
+        <div class="sc-body">
+          <div class="s-label">Stock Holders</div>
+          <div class="s-value" id="shHolders">0</div>
+          <div class="s-sub s-up" id="shHoldersSub">0 open positions</div>
+        </div>
+      </div>
+      <div class="stat-card sc-green">
+        <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
+        <div class="sc-body">
+          <div class="s-label">Portfolio Value</div>
+          <div class="s-value" id="shValue">$0.00</div>
+          <div class="s-sub" style="color:#059669;" id="shValueSub">$0.00 cost basis</div>
+        </div>
+      </div>
+      <div class="stat-card sc-amber">
+        <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div>
+        <div class="sc-body">
+          <div class="s-label">Unrealized P&amp;L</div>
+          <div class="s-value" id="shPnl">$0.00</div>
+          <div class="s-sub" style="color:#d97706;" id="shPnlSub">$0.00 cost basis</div>
+        </div>
+      </div>
+      <div class="stat-card sc-red">
+        <div class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+        <div class="sc-body">
+          <div class="s-label">Realized Profit</div>
+          <div class="s-value" id="shRealized">$0.00</div>
+          <div class="s-sub" id="shRealizedSub">0 closed lots</div>
+        </div>
+      </div>
+    </div>
+    <div class="admin-panel" id="shPanel">
+      <div class="admin-table-wrap">
+        <table>
+          <thead><tr>
+            <th>User</th><th>Stock</th><th>Shares</th><th>Avg Cost</th><th>Market</th><th>Value</th><th>Unrealized P&amp;L</th><th>Realized</th><th>Total P&amp;L</th>
+          </tr></thead>
+          <tbody id="shBody"></tbody>
+        </table>
+      </div>
+      <div class="sh-empty" id="shEmpty" style="display:none;padding:26px 18px;text-align:center;color:#8a94a6;font-size:13.5px;">No users currently hold open stock positions.</div>
+    </div>
       </main>
     </div>
   </div>
@@ -315,6 +362,79 @@
     var totalPending = verPending + pendingDep + pendingWd + pendingLoans + pendingQuants + unread;
     var heroP = document.getElementById('heroPending');
     if (heroP) heroP.textContent = totalPending + ' pending task' + (totalPending === 1 ? '' : 's');
+
+    renderStockHoldings();
+    }
+
+    function setTxt(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+    function usdAll(n) {
+      if (!isFinite(n)) return '$0.00';
+      var neg = n < 0, abs = Math.abs(n);
+      var t = abs >= 1000000000 ? (abs / 1000000000).toFixed(2) + 'B' : abs >= 1000000 ? (abs / 1000000).toFixed(1) + 'M' : abs >= 1000 ? (abs / 1000).toFixed(1) + 'K' : abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return (neg ? '-$' : '$') + t;
+    }
+    // Table cells need exact figures; the stat cards above abbreviate.
+    function usdFull(n) {
+      if (!isFinite(n)) return '$0.00';
+      return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function escH(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    // Which stocks each user is holding, read straight from the STOCK:-prefixed
+    // rows in `trades` (same source the market tab writes to).
+    function renderStockHoldings() {
+      var body = document.getElementById('shBody');
+      if (!body) return;
+      var empty = document.getElementById('shEmpty');
+      var rows = TrustApp.getAllStockHoldings ? TrustApp.getAllStockHoldings() : [];
+      var realized = TrustApp.getAllStockRealized ? TrustApp.getAllStockRealized() : 0;
+      var closedLots = TrustApp.getAllStockClosedCount ? TrustApp.getAllStockClosedCount() : 0;
+
+      var value = 0, cost = 0, uids = {};
+      rows.forEach(function (h) { value += h.value; cost += h.cost; if (h.uid) uids[h.uid] = 1; });
+      var pnl = value - cost;
+
+      setTxt('shHolders', Object.keys(uids).length);
+      setTxt('shHoldersSub', rows.length + ' open position' + (rows.length === 1 ? '' : 's'));
+      setTxt('shValue', usdAll(value));
+      setTxt('shValueSub', usdAll(cost) + ' cost basis');
+
+      var pe = document.getElementById('shPnl');
+      if (pe) { pe.textContent = usdAll(pnl); pe.style.color = pnl > 0 ? '#059669' : (pnl < 0 ? '#dc2626' : '#6b7280'); }
+      setTxt('shPnlSub', usdAll(cost) + ' invested');
+      var re = document.getElementById('shRealized');
+      if (re) { re.textContent = usdAll(realized); re.style.color = realized > 0 ? '#059669' : (realized < 0 ? '#dc2626' : '#6b7280'); }
+      setTxt('shRealizedSub', closedLots + ' settled lot' + (closedLots === 1 ? '' : 's'));
+
+      if (empty) empty.style.display = rows.length ? 'none' : '';
+      if (!rows.length) { body.innerHTML = ''; return; }
+
+      var logo = TrustApp.stockLogoHtml || function () { return ''; };
+      function tone(n) { return Math.abs(n) < 0.005 ? '#6b7280' : (n > 0 ? '#059669' : '#dc2626'); }
+      body.innerHTML = rows.map(function (h) {
+        var d = TrustApp.findCoin ? TrustApp.findCoin(h.symbol) : null;
+        var name = d && d.n ? d.n : h.symbol;
+        var who = h.account || h.uid;
+        var pct = (h.pnl > 0 ? '+' : '') + h.pnlPct.toFixed(2) + '%';
+        return '<tr>'
+          + '<td><div style="font-weight:600;color:#131f30;">' + escH(who) + '</div>'
+          + '<div style="color:#8a94a6;font-size:.75rem;">UID ' + escH(String(h.uid)) + '</div></td>'
+          + '<td><div class="sh-stock">' + logo(h.symbol, 'sm')
+          + '<div><div style="font-weight:700;">' + escH(h.symbol) + '</div>'
+          + '<div style="color:#8a94a6;font-size:.78rem;">' + escH(name) + '</div></div></div></td>'
+          + '<td>' + h.shares + '</td>'
+          + '<td>$' + h.avg.toFixed(2) + '</td>'
+          + '<td>$' + h.market.toFixed(2) + '</td>'
+          + '<td style="font-weight:700;">' + usdFull(h.value) + '</td>'
+          + '<td style="font-weight:700;color:' + tone(h.pnl) + ';">' + usdFull(h.pnl) + ' (' + pct + ')</td>'
+          + '<td style="color:' + tone(h.realized) + ';">' + usdFull(h.realized) + (h.closed ? '<div style="font-size:.72rem;color:#8a94a6;">' + h.closed + ' settled</div>' : '') + '</td>'
+          + '<td style="font-weight:700;color:' + tone(h.totalPnl) + ';">' + usdFull(h.totalPnl) + '</td>'
+          + '</tr>';
+      }).join('');
     }
 
     renderDash();
