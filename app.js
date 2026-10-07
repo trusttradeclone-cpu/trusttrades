@@ -161,7 +161,7 @@
       try { applyI18n(); } catch (e) {}
       try { updateMenuUser(); } catch (e) {}
       try { migrateLegacyTrades(); } catch (e) {}
-      setTimeout(function () { try { settleExpiredTrades(); } catch (e) {} }, 0);
+      try { startSettleSweep(); } catch (e) {}
     }
     if (DB.onReady) DB.onReady(hook);
     if (typeof window !== 'undefined') {
@@ -2513,49 +2513,143 @@ function addTxn(obj) {
     });
   }
 
-  // Auto-settle open trades whose duration has fully elapsed, so a user who
-  // placed a trade and left the page (or reloaded mid-countdown) still gets
-  // their capital + profit credited when the time completes. Mirrors the
-  // in-browser payout in trade.html: win credits amount + 20% odds profit;
-  // loss refunds amount - profit (same partial-refund rule). Runs once per
-  // boot on DB-ready; only open/elapsed rows are touched, so settled trades
-  // are never credited twice.
+  // ---------------------------------------------------------------------------
+  // Options-trade settlement.
+  //
+  // A trade is scheduled the moment it is opened and is paid out exactly once
+  // when its duration elapses. Two places can reach that moment:
+  //   * trade.html, while its countdown is on screen (it passes the outcome it
+  //     already drew at open, so the result panel matches the credit), and
+  //   * settleExpiredTrades(), the sweeper below, which keeps running on every
+  //     page so a user who opened a trade and left (or closed the countdown)
+  //     is still paid while they sit anywhere else.
+  // Both funnel through settleTrade(), which is idempotent per page session
+  // (_settling) and per row (status 'open' -> 'win'/'loss'), so the two paths
+  // can never credit the same trade twice.
+  //
+  // The sweeper used to run once at boot: a trade that elapsed a couple of
+  // minutes after the user parked on another page was invisible to it, and the
+  // payout never landed until that user reloaded. The interval below re-checks
+  // every 2s and on focus/visibility, which closes that hole.
+  // ---------------------------------------------------------------------------
+
+  var _settling = {};
+
+  // Payout odds for a duration, mirroring the picker in trade.html. trade.html
+  // reads this helper when a duration is chosen so the sweeper and the
+  // countdown can never disagree about the payout rate.
+  function oddsForDuration(sec) {
+    var map = { 60: 20, 120: 30, 300: 40 };
+    var v = parseInt(sec, 10);
+    if (map[v] != null) return map[v];
+    return 20;
+  }
+
+  function findTrade(id) {
+    if (id == null || id === '') return null;
+    var key = String(id);
+    var mapped = (_tradeIdMap && _tradeIdMap[key]) || key;
+    var list;
+    try { list = getTrades(); } catch (e) { return null; }
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].id) === key || String(list[i].id) === String(mapped)) return list[i];
+    }
+    return null;
+  }
+
+  // Resolve (and pay, once) a single options trade. `opts`:
+  //   win   - the outcome the opener already drew (the trade.html countdown)
+  //   odds  - the payout percentage for the profit (the trade.html countdown)
+  // Returns a promise of { ok, already, win, profit }.
+  function settleTrade(id, opts) {
+    opts = opts || {};
+    var key = String(id);
+    if (_settling[key]) {
+      return Promise.resolve({
+        ok: true, already: true, win: _settling[key].win, profit: _settling[key].profit
+      });
+    }
+    var t = findTrade(key);
+    if (!t) {
+      // The DB write for a just-opened trade can still be in flight when the
+      // countdown finishes; retry briefly before giving up.
+      var attempts = parseInt(opts._retry, 10) || 0;
+      if (attempts < 6) {
+        return new Promise(function (res) { setTimeout(res, 300); }).then(function () {
+          opts._retry = attempts + 1;
+          return settleTrade(id, opts);
+        });
+      }
+      return Promise.resolve({ ok: false, missing: true });
+    }
+    // Guard on the DB row id, not the caller's alias, so two callers of the
+    // same trade (countdown by local id, sweeper by row id) cannot both pay.
+    var rid = String(t.id);
+    if (_settling[rid]) {
+      _settling[key] = _settling[rid];
+      return Promise.resolve({ ok: true, already: true, win: _settling[rid].win, profit: _settling[rid].profit });
+    }
+    if (t.status !== 'open') {
+      var seen = { win: t.status === 'win', profit: parseFloat(t.profit) || 0 };
+      _settling[key] = seen; _settling[rid] = seen;
+      return Promise.resolve({ ok: true, already: true, win: seen.win, profit: seen.profit });
+    }
+    var uid = t.uid != null ? t.uid : getUserId();
+    var amt = parseFloat(t.amount) || 0;
+    var rate = opts.odds != null ? parseFloat(opts.odds) : oddsForDuration(t.duration);
+    if (!isFinite(rate) || rate <= 0) rate = oddsForDuration(t.duration);
+    var forced = !!(uid && typeof getProfitMode === 'function' && getProfitMode(uid));
+    var win = opts.win != null ? !!opts.win : (forced || Math.random() < 0.2);
+    var pct = amt * rate / 100;
+    var res = { win: win, profit: win ? pct : -pct };
+    _settling[key] = res; _settling[rid] = res;
+    var credit = Promise.resolve();
+    if (uid) {
+      try { credit = addBalance(uid, 'USDT', win ? amt + pct : amt - pct) || Promise.resolve(); }
+      catch (e) {}
+    }
+    return credit.then(function () {
+      updateTrade(t.id, {
+        status: win ? 'win' : 'loss',
+        sellPrice: (parseFloat(t.price) || 0) * (win ? 1.001 : 0.999),
+        settledAt: new Date().toISOString(),
+        profit: res.profit
+      });
+      try { window.dispatchEvent(new CustomEvent('trustsync:trades')); } catch (e) {}
+      return { ok: true, already: false, win: win, profit: res.profit };
+    });
+  }
+
+  // Sweep: settle every elapsed open trade, whoever opened it. Runs on a 2s
+  // interval plus on focus/visibility/pageshow so a user parked on any page
+  // gets paid the moment their trade's time is up.
   function settleExpiredTrades() {
     if (!dbActive()) return;
     var now = Date.now();
     var list;
-    try { list = getTrades(); } catch (e) { return; }
-    var settledAny = false;
+    try { list = getTrades(); } catch (e) { return false; }
+    var found = false;
     list.forEach(function (t) {
       if (!t || t.status !== 'open') return;
       var durMs = (parseInt(t.duration, 10) || 60) * 1000;
       var start = Date.parse(t.createdAt || t.openedAt || t.opened_at || '');
-      if (!start) return;
-      if (now < start + durMs) return;
-      var uid = t.uid != null ? t.uid : getUserId();
-      var amt = parseFloat(t.amount) || 0;
-      var buyPrice = parseFloat(t.price) || 0;
-      var profitMode = (uid && typeof getProfitMode === 'function') ? getProfitMode(uid) : false;
-      var win = profitMode || Math.random() < 0.2;
-      var pct = amt * 20 / 100;
-      var profit = win ? pct : -pct;
-      settledAny = true;
-      if (uid) {
-        try {
-          if (win) addBalance(uid, 'USDT', amt + pct);
-          else addBalance(uid, 'USDT', amt - pct);
-        } catch (e) {}
-      }
-      updateTrade(t.id, {
-        status: win ? 'win' : 'loss',
-        sellPrice: buyPrice * (win ? 1.001 : 0.999),
-        settledAt: new Date(now).toISOString(),
-        profit: profit
-      });
+      if (!start || now < start + durMs) return;
+      found = true;
+      settleTrade(t.id).catch(function () { return null; });
     });
-    if (settledAny && typeof window !== 'undefined') {
-      try { window.dispatchEvent(new CustomEvent('trustsync:trades')); } catch (e) {}
-    }
+    return found;
+  }
+
+  var _settleTimer = null;
+  function startSettleSweep() {
+    if (typeof window === 'undefined' || _settleTimer) return;
+    var run = function () { try { settleExpiredTrades(); } catch (e) {} };
+    _settleTimer = setInterval(run, 2000);
+    ['focus', 'pageshow', 'visibilitychange'].forEach(function (ev) {
+      try { window.addEventListener(ev, run); } catch (e) {}
+    });
+    try { window.addEventListener('trustsync:trades', run); } catch (e) {}
+    setTimeout(run, 0);
   }
 
   // One-time migration: push legacy/offline localStorage trades into Supabase.
@@ -3723,6 +3817,9 @@ function addTxn(obj) {
     getTrades: getTrades,
     addTrade: addTrade,
     updateTrade: updateTrade,
+    settleTrade: settleTrade,
+    oddsForDuration: oddsForDuration,
+    settleExpiredTrades: settleExpiredTrades,
     getAIOrders: getAIOrders,
     addAIOrder: addAIOrder,
     updateAIOrder: updateAIOrder,

@@ -210,7 +210,7 @@
     }
     var direction = 'up';
     var durationSec = 60;
-    var odds = 20;
+    var odds = (TrustApp.oddsForDuration ? TrustApp.oddsForDuration(durationSec) : 20);
     var wallet = 'USDT';
     var price = market.price;
     var priceBase = price;
@@ -277,7 +277,8 @@
     function openSheet(id) { document.getElementById(id).style.display = 'flex'; }
 
     function pickDuration(sec, o) {
-      durationSec = sec; odds = o;
+      durationSec = sec;
+      odds = (TrustApp.oddsForDuration ? TrustApp.oddsForDuration(sec) : o);
       document.getElementById('durationLabel').textContent = sec + 's';
       document.getElementById('oddsLabel').textContent = o + '%';
       document.querySelectorAll('#timeSheet .sheet-item').forEach(function (it) { it.classList.remove('active'); });
@@ -364,9 +365,13 @@
           clearInterval(countdownTimer); countdownTimer = null;
           document.getElementById('countdownOverlay').querySelector('.countdown-circle').style.display = 'none';
           document.getElementById('settlingBox').style.display = 'flex';
+          // Settle right at expiry so it beats the 2s background sweeper and
+          // the user is paid whichever page they are on; the result panel is
+          // revealed after a short settling pause.
+          showResult(amt, finalWin, false);
           setTimeout(function () {
             document.getElementById('countdownOverlay').style.display = 'none';
-            showResult(amt, finalWin);
+            document.getElementById('resultOverlay').style.display = 'flex';
           }, 1800);
         }
       }, 1000);
@@ -389,21 +394,29 @@
       document.getElementById('countdownOverlay').style.display = 'none';
     }
 
-    function showResult(amt, win) {
+    function showResult(amt, win, reveal) {
       var pct = amt * odds / 100;
-      var profit = win ? pct : -pct;
-      if (win) {
-        TrustApp.addBalance(TrustApp.getUserId(), 'USDT', profit + amt);
-      } else {
-        TrustApp.addBalance(TrustApp.getUserId(), 'USDT', amt - pct);
-      }
-      if (currentOrderId) {
-        TrustApp.updateTrade(currentOrderId, {
-          status: win ? 'win' : 'loss',
-          sellPrice: price * (win ? 1.001 : 0.999),
-          settledAt: new Date().toISOString(),
-          profit: profit
-        });
+      var fallback = function () {
+        renderResult(amt, win, win ? pct : -pct, true, reveal);
+      };
+      if (!currentOrderId || !TrustApp.settleTrade) { fallback(); return; }
+      Promise.resolve(TrustApp.settleTrade(currentOrderId, { win: win, odds: odds }))
+        .then(function (res) {
+          if (res && res.ok) renderResult(amt, res.win, res.profit, false, reveal);
+          else fallback();
+        }, function () { fallback(); });
+    }
+
+    // Renders the result panel and credits the wallet. When `legacyCredit` is
+    // true, the payout is done here directly (no DB row / legacy fallback);
+    // otherwise TrustApp.settleTrade() already moved the money and marked the
+    // trade settled, and the result shown is the authoritative one it returned.
+    // `reveal===false` leaves the panel hidden until the caller shows it.
+    function renderResult(amt, win, profit, legacyCredit, reveal) {
+      var pct = amt * odds / 100;
+      if (legacyCredit) {
+        if (win) TrustApp.addBalance(TrustApp.getUserId(), 'USDT', profit + amt);
+        else TrustApp.addBalance(TrustApp.getUserId(), 'USDT', amt - pct);
       }
       var icon = document.getElementById('resultIcon');
       var amtEl = document.getElementById('resultAmount');
@@ -417,7 +430,7 @@
         + '<div class="row"><span class="label">Contract</span><span class="value">' + durationSec + 's</span></div>'
         + '<div class="row"><span class="label">Purchase Price</span><span class="value">' + fmt(price, dec) + '</span></div>'
         + '<div class="row"><span class="label">Selling Price</span><span class="value">' + fmt(price * (win ? 1.001 : 0.999), dec) + '</span></div>';
-      document.getElementById('resultOverlay').style.display = 'flex';
+      if (reveal !== false) document.getElementById('resultOverlay').style.display = 'flex';
       records.unshift({ coin: symbol, alias: alias, unit: quoteUnit, dir: direction, amount: amt.toFixed(2), status: win ? 'win' : 'loss', time: new Date().toISOString().slice(0, 19).replace('T', ' '), profit: (win ? '+' : '') + profit.toFixed(2) });
       renderRecords();
     }
