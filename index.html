@@ -89,8 +89,20 @@
           <button class="tab-btn active" data-tab="crypto" onclick="switchTab(this,'crypto')"><span data-i18n="index.tabCrypto">Crypto</span></button>
           <button class="tab-btn" data-tab="metal" onclick="switchTab(this,'metal')"><span data-i18n="index.tabMetal">Metal</span></button>
           <button class="tab-btn" data-tab="forex" onclick="switchTab(this,'forex')"><span data-i18n="index.tabForex">Forex</span></button>
+          <button class="tab-btn" data-tab="stocks" onclick="switchTab(this,'stocks')"><span data-i18n="index.tabStocks">Stocks</span></button>
         </div>
         <div class="market-list" id="marketList"></div>
+
+        <div class="stock-portfolio" id="stockPortfolio" style="display:none;">
+          <div class="sp-head">
+            <h3 data-i18n="index.holdings">My Holdings</h3>
+            <div class="sp-totals">
+              <span class="sp-val" id="spValue">$ 0.00</span>
+              <span class="sp-pnl" id="spPnl">+0.00 (0.00%)</span>
+            </div>
+          </div>
+          <div class="sp-list" id="spList"></div>
+        </div>
       </section>
     </div>
   </div>
@@ -144,12 +156,41 @@
     </div>
   </div>
 
+  <div class="stock-ticket" id="stockTicket" onclick="closeStockTicket()">
+    <div class="st-card" onclick="event.stopPropagation()">
+      <div class="st-head">
+        <div class="st-heading">
+          <div class="st-title" id="stTitle">AAPL</div>
+          <div class="st-sub" id="stName"></div>
+        </div>
+        <button class="st-close" id="stClose" onclick="closeStockTicket()" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+        </button>
+      </div>
+
+      <div class="st-row"><span data-i18n="stock.price">Price</span><b id="stPrice">-</b></div>
+      <div class="st-row"><span data-i18n="stock.available">Available</span><b><span id="stBal">0.00</span> USDT</b></div>
+      <div class="st-row"><span data-i18n="index.holdings">My Holdings</span><b id="stHeld">-</b></div>
+
+      <label class="st-label" for="stQty" data-i18n="stock.shares">Shares</label>
+      <input class="st-input" id="stQty" type="number" min="0" step="any" value="1" inputmode="decimal" oninput="recalcStockTicket()">
+
+      <div class="st-row"><span data-i18n="stock.total">Order total</span><b id="stTotal">$ 0.00</b></div>
+      <div class="st-row"><span data-i18n="stock.sellWorth">Sell value</span><b id="stSellWorth">$ 0.00</b></div>
+
+      <div class="st-actions">
+        <button class="st-btn st-buy" id="stBuyBtn" onclick="stockTicketAction('buy')" data-i18n="stock.buy">Buy</button>
+        <button class="st-btn st-sell" id="stSellBtn" onclick="stockTicketAction('sell')" data-i18n="stock.sell">Sell</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-overlay" id="toastBox"></div>
 
   <script>
     var currentTab = 'crypto';
     var urlTab = new URLSearchParams(location.search).get('tab');
-    if (urlTab && (urlTab === 'crypto' || urlTab === 'metal' || urlTab === 'forex')) {
+    if (urlTab && (urlTab === 'crypto' || urlTab === 'metal' || urlTab === 'forex' || urlTab === 'stocks')) {
       currentTab = urlTab;
     }
     if (AppConfig.metalTabFirst) currentTab = urlTab || 'metal';
@@ -166,9 +207,14 @@
       var html = '';
       for (var i = 0; i < data.length; i++) {
         var d = data[i];
-        var icon = d.i ? '<img src="img/' + d.i + '" alt="' + d.s + '">' : '<span class="coin-letter">' + d.s.charAt(0) + '</span>';
+        var icon = d.i ? '<img src="img/' + d.i + '" alt="' + d.s + '">' : '<span class="coin-letter">' + (d.l || d.s.charAt(0)) + '</span>';
         var prefix = TrustApp.pricePrefix(d);
-        html += '<div class="market-item" data-coin="' + (d.pair || d.s) + '" onclick="location.href=\'' + TrustApp.marketToTradeQuery(d, currentTab) + '\'">'
+        // Stocks open the buy/hold ticket here instead of trade.html, which is
+        // the fixed-duration options form and cannot price a share position.
+        var click = currentTab === 'stocks'
+          ? 'onclick="openStockTicket(\'' + d.s.replace(/'/g, '') + '\')"'
+          : 'onclick="location.href=\'' + TrustApp.marketToTradeQuery(d, currentTab) + '\'"';
+        html += '<div class="market-item" data-coin="' + (d.pair || d.s) + '" ' + click + '>'
           + '<div class="market-info">'
           + '<div class="market-icon">' + icon + '</div>'
           + '<div class="market-details"><div class="market-symbol">' + d.s + '</div><div class="market-name">' + d.n + '</div></div>'
@@ -185,6 +231,122 @@
       el.classList.add('active');
       currentTab = tab;
       renderMarket();
+      renderStockPortfolio();
+    }
+
+    // ---- Stocks: buy / hold / sell -----------------------------------------
+    var stockSym = null;
+
+    function money(n) {
+      return '$ ' + (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function stockHolding(sym) {
+      try {
+        var rows = TrustApp.getStockPortfolio().holdings;
+        for (var i = 0; i < rows.length; i++) if (rows[i].symbol === sym) return rows[i];
+      } catch (e) {}
+      return { symbol: sym, shares: 0, cost: 0, value: 0, pnl: 0, pnlPct: 0, market: 0, avg: 0 };
+    }
+
+    function closeStockTicket() {
+      stockSym = null;
+      document.getElementById('stockTicket').classList.remove('open');
+    }
+
+    function recalcStockTicket() {
+      var d = TrustApp.findCoin(stockSym);
+      var qty = parseFloat(document.getElementById('stQty').value) || 0;
+      var price = d ? d.price : 0;
+      var held = stockHolding(stockSym);
+      document.getElementById('stTotal').textContent = money(qty * price);
+      document.getElementById('stSellWorth').textContent = money(qty * price);
+      var sellBtn = document.getElementById('stSellBtn');
+      sellBtn.disabled = !(qty > 0 && qty <= held.shares + 1e-9);
+      sellBtn.classList.toggle('is-disabled', sellBtn.disabled);
+      var buyBtn = document.getElementById('stBuyBtn');
+      var bal = 0;
+      try { bal = parseFloat(TrustApp.getBalances(TrustApp.getUserId()).USDT) || 0; } catch (e) {}
+      buyBtn.disabled = !(qty > 0 && qty * price <= bal + 1e-9);
+      buyBtn.classList.toggle('is-disabled', buyBtn.disabled);
+    }
+
+    function openStockTicket(sym) {
+      var d = TrustApp.findCoin(sym);
+      if (!d) return;
+      if (!TrustApp.isLoggedIn()) { TrustApp.toast('warning', 'Please log in to trade stocks.'); return; }
+      stockSym = sym;
+      var bal = 0;
+      try { bal = parseFloat(TrustApp.getBalances(TrustApp.getUserId()).USDT) || 0; } catch (e) {}
+      var held = stockHolding(sym);
+
+      document.getElementById('stTitle').textContent = sym;
+      document.getElementById('stName').textContent = d.n;
+      document.getElementById('stPrice').textContent = TrustApp.pricePrefix(d) + TrustApp.fmtPrice(d.price, d.dec);
+      document.getElementById('stBal').textContent = bal.toFixed(2);
+      document.getElementById('stHeld').textContent = held.shares
+        ? held.shares + ' shares (avg ' + money(held.avg) + ')'
+        : 'No shares held';
+      document.getElementById('stQty').value = '1';
+      recalcStockTicket();
+      document.getElementById('stockTicket').classList.add('open');
+    }
+
+    function busyStockTicket(busy) {
+      ['stBuyBtn', 'stSellBtn', 'stQty', 'stClose'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.disabled = busy;
+      });
+      document.getElementById('stockTicket').classList.toggle('busy', busy);
+    }
+
+    function stockTicketAction(kind) {
+      if (!stockSym) return;
+      var sym = stockSym;
+      var qty = parseFloat(document.getElementById('stQty').value) || 0;
+      busyStockTicket(true);
+      var p = kind === 'buy' ? TrustApp.buyStock(sym, qty) : TrustApp.sellStock(sym, qty);
+      p.then(function (res) {
+        busyStockTicket(false);
+        if (res && res.ok) {
+          TrustApp.toast('success', (kind === 'buy' ? 'Bought ' : 'Sold ') + qty + ' ' + sym + ' successfully.');
+          closeStockTicket();
+        } else {
+          TrustApp.toast('error', (res && res.msg) || 'Order failed.');
+        }
+        renderStockPortfolio();
+        refreshHeaderUI();
+      }).catch(function () {
+        busyStockTicket(false);
+        TrustApp.toast('error', 'Order failed.');
+      });
+    }
+
+    function renderStockPortfolio() {
+      var box = document.getElementById('stockPortfolio');
+      if (!box) return;
+      if (currentTab !== 'stocks') { box.style.display = 'none'; return; }
+      var p;
+      try { p = TrustApp.getStockPortfolio(); } catch (e) { return; }
+
+      var has = p.holdings.length > 0;
+      box.style.display = has ? '' : 'none';
+      var v = document.getElementById('spValue');
+      var pnl = document.getElementById('spPnl');
+      v.textContent = money(p.value);
+      pnl.textContent = (p.pnl >= 0 ? '+' : '') + p.pnl.toFixed(2) + ' (' + (p.pnl >= 0 ? '+' : '') + (p.cost > 0 ? (p.pnl / p.cost * 100).toFixed(2) : '0.00') + '%)';
+      pnl.className = 'sp-pnl ' + (p.pnl >= 0 ? 'positive' : 'negative');
+
+      var rows = '';
+      p.holdings.forEach(function (h) {
+        rows += '<div class="sp-row">'
+          + '<div class="sp-sym"><b>' + h.symbol + '</b><span>' + h.shares + ' sh @ ' + money(h.avg) + '</span></div>'
+          + '<div class="sp-nums"><b>' + money(h.value) + '</b><span class="' + (h.pnl >= 0 ? 'positive' : 'negative') + '">'
+          + (h.pnl >= 0 ? '+' : '') + h.pnl.toFixed(2) + ' (' + (h.pnl >= 0 ? '+' : '') + h.pnlPct.toFixed(2) + '%)</span></div>'
+          + '<div class="sp-actions"><button class="sp-btn" onclick="openStockTicket(\'' + h.symbol + '\')">Trade</button></div>'
+          + '</div>';
+      });
+      document.getElementById('spList').innerHTML = rows;
     }
 
     function updatePrices() {
@@ -212,11 +374,18 @@
     }
 
     renderMarket();
+    renderStockPortfolio();
     setInterval(function () {
       TrustApp.liveTick(currentTab, updatePrices);
+      if (currentTab === 'stocks') renderStockPortfolio();
     }, 2000);
     TrustApp.fetchMarket(function () {
       renderMarket();
+      renderStockPortfolio();
+    });
+    window.addEventListener('trustsync:trades', function () {
+      renderStockPortfolio();
+      if (stockSym) openStockTicket(stockSym);
     });
 
     if (AppConfig.advancedAuthEnabled) {

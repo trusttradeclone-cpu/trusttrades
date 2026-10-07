@@ -267,6 +267,25 @@
         { s: 'GBP', n: 'USD', price: 1.3433, change: 0.25, dec: 4, i: 'GBP.svg' },
         { s: 'USD', n: 'CNY', price: 6.7289, change: -0.24, dec: 4, i: 'USD_CNY.svg' },
         { s: 'USD', n: 'JPY', price: 111.467, change: 0.08, dec: 3, i: 'USD_JPY.svg' }
+      ],
+      // Buy-and-hold equities. `l` is the badge shown where coins show a
+      // single letter; no matching file exists in img/ for these tickers.
+      stocks: [
+        { s: 'AAPL', n: 'Apple Inc.',        price: 278.50,   change: 0.84,  dec: 2, l: 'AP' },
+        { s: 'MSFT', n: 'Microsoft',         price: 512.30,   change: 1.12,  dec: 2, l: 'MS' },
+        { s: 'NVDA', n: 'NVIDIA',            price: 198.75,   change: 3.47,  dec: 2, l: 'NV' },
+        { s: 'GOOGL', n: 'Alphabet',         price: 315.40,   change: 0.62,  dec: 2, l: 'GO' },
+        { s: 'AMZN', n: 'Amazon',            price: 254.80,   change: -0.41, dec: 2, l: 'AM' },
+        { s: 'META', n: 'Meta Platforms',    price: 745.20,   change: 1.95,  dec: 2, l: 'ME' },
+        { s: 'TSLA', n: 'Tesla',             price: 428.60,   change: -2.18, dec: 2, l: 'TS' },
+        { s: 'BRK.B', n: 'Berkshire',        price: 492.10,   change: 0.35,  dec: 2, l: 'BR' },
+        { s: 'JPM', n: 'JPMorgan Chase',     price: 318.75,   change: 0.74,  dec: 2, l: 'JP' },
+        { s: 'V', n: 'Visa',                 price: 372.40,   change: 0.51,  dec: 2, l: 'VI' },
+        { s: 'NFLX', n: 'Netflix',           price: 1180.50,  change: 2.26,  dec: 2, l: 'NF' },
+        { s: 'AMD', n: 'AMD',                price: 215.30,   change: -1.34, dec: 2, l: 'AD' },
+        { s: 'AVGO', n: 'Broadcom',          price: 385.90,   change: 1.68,  dec: 2, l: 'AV' },
+        { s: 'COST', n: 'Costco',            price: 1045.20,  change: 0.44,  dec: 2, l: 'CO' },
+        { s: 'WMT', n: 'Walmart',            price: 118.65,   change: 0.29,  dec: 2, l: 'WM' }
       ]
     };
   }
@@ -277,11 +296,15 @@
 
   function rebuildFlat() {
     marketFlat = {};
-    ['crypto', 'metal', 'forex'].forEach(function (tab) {
+    ['crypto', 'metal', 'forex', 'stocks'].forEach(function (tab) {
       (MARKET[tab] || []).forEach(function (d) {
         d.pair = d.s + '/' + d.n;
         d.base = d.price;
         d.baseChange = d.change;
+        // `tab` was only ever set by parseItem for API-sourced rows, so the
+        // fallback rows never carried it. Set it here for every row so
+        // pricePrefix() and friends can branch on the tab reliably.
+        d.tab = tab;
         marketFlat[d.pair] = d;
         if (!marketFlat[d.s]) marketFlat[d.s] = d;
       });
@@ -294,7 +317,7 @@
   }
 
   function pricePrefix(d) {
-    if (d.n === 'USDT' || d.n === 'USD' || d.tab === 'crypto') return 'US$';
+    if (d.n === 'USDT' || d.n === 'USD' || d.tab === 'crypto' || d.tab === 'stocks') return 'US$';
     return '';
   }
 
@@ -811,6 +834,15 @@
     'index.tabCrypto': { en: 'Crypto', zh: '加密货币', ja: '暗号通貨', ko: '암호화폐', fa: 'ارز دیجیتال', de: 'Krypto', fr: 'Crypto', es: 'Cripto', it: 'Crypto', pt: 'Cripto', ru: 'Крипто' },
     'index.tabMetal': { en: 'Metal', zh: '金属', ja: '金属', ko: '금속', fa: 'فلز', de: 'Metall', fr: 'Métaux', es: 'Metales', it: 'Metalli', pt: 'Metais', ru: 'Металлы' },
     'index.tabForex': { en: 'Forex', zh: '外汇', ja: '外国為替', ko: '외환', fa: 'فارکس', de: 'Devisen', fr: 'Forex', es: 'Forex', it: 'Forex', pt: 'Forex', ru: 'Форекс' },
+    'index.tabStocks': { en: 'Stocks', zh: '股票', ja: '株式', ko: '주식', fa: 'سهام', de: 'Aktien', fr: 'Actions', es: 'Acciones', it: 'Azioni', pt: 'Ações', ru: 'Акции' },
+    'index.holdings': { en: 'My Holdings', zh: '我的持仓', ja: '保有銘柄', ko: '보유 포지션', fa: 'دارایی‌های من', de: 'Meine Bestände', fr: 'Mes positions', es: 'Mis posiciones', it: 'Le mie posizioni', pt: 'As minhas posições', ru: 'Мои позиции' },
+    'stock.price': { en: 'Price', zh: '价格', ja: '価格', ko: '가격', fa: 'قیمت', de: 'Preis', fr: 'Prix', es: 'Precio', it: 'Prezzo', pt: 'Preço', ru: 'Цена' },
+    'stock.available': { en: 'Available', zh: '可用余额', ja: '利用可能', ko: '사용 가능', fa: 'موجودی', de: 'Verfügbar', fr: 'Disponible', es: 'Disponible', it: 'Disponibile', pt: 'Disponível', ru: 'Доступно' },
+    'stock.shares': { en: 'Shares', zh: '股数', ja: '株数', ko: '수량', fa: 'تعداد سهام', de: 'Stück', fr: 'Parts', es: 'Acciones', it: 'Titoli', pt: 'Ações', ru: 'Штуки' },
+    'stock.total': { en: 'Order total', zh: '订单总额', ja: '注文合計', ko: '주문 총액', fa: 'مجموع سفارش', de: 'Bestellwert', fr: 'Total de la commande', es: 'Total del pedido', it: 'Totale ordine', pt: 'Total do pedido', ru: 'Сумма заказа' },
+    'stock.sellWorth': { en: 'Sell value', zh: '卖出价值', ja: '売却価値', ko: '매도 가치', fa: 'ارزش فروش', de: 'Verkaufswert', fr: 'Valeur de revente', es: 'Valor de venta', it: 'Valore di vendita', pt: 'Valor de venda', ru: 'Стоимость продажи' },
+    'stock.buy': { en: 'Buy', zh: '买入', ja: '買う', ko: '매수', fa: 'خرید', de: 'Kaufen', fr: 'Acheter', es: 'Comprar', it: 'Compra', pt: 'Comprar', ru: 'Купить' },
+    'stock.sell': { en: 'Sell', zh: '卖出', ja: '売る', ko: '매도', fa: 'فروش', de: 'Verkaufen', fr: 'Vendre', es: 'Vender', it: 'Vendi', pt: 'Vender', ru: 'Продать' },
     'index.hrs': { en: '24 Hrs', zh: '24小时', ja: '24時間', ko: '24시간', fa: '۲۴ ساعت', de: '24 Std.', fr: '24 h', es: '24 h', it: '24 ore', pt: '24 h', ru: '24 ч' },
     'nav.account': { en: 'Account', zh: '账户', ja: 'アカウント', ko: '계정', fa: 'حساب', de: 'Konto', fr: 'Compte', es: 'Cuenta', it: 'Conto', pt: 'Conta', ru: 'Аккаунт' },
     'nav.ai': { en: 'AI Quant', zh: 'AI量化', ja: 'AIクアント', ko: 'AI 퀀트', fa: 'کوانت هوشمند', de: 'AI-Quant', fr: 'IA Quant', es: 'IA Quant', it: 'IA Quant', pt: 'IA Quant', ru: 'AI-квант' },
@@ -2155,9 +2187,201 @@ function addTxn(obj) {
       if (patch.sellPrice !== undefined) p.sell_price = patch.sellPrice;
       if (patch.settledAt !== undefined) p.settled_at = patch.settledAt;
       if (patch.profit !== undefined) p.profit = patch.profit;
+      if (patch.amount !== undefined) p.amount = patch.amount;
       DB.updateTrade(String(dbId), p).catch(function () {});
     }
     return t;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Buy-and-hold stocks.
+  //
+  // Positions reuse the `trades` table with a `STOCK:` prefix so no schema
+  // change (and no new anon policy) is required: `amount` is the share count,
+  // `price` is cost basis per share, and `status` stays 'held' until sold.
+  // `settleExpiredTrades` only ever touches status 'open', so holdings are
+  // never force-settled by the options countdown.
+  //
+  // While held, `profit` carries realized-so-far (from partial sells). The lot
+  // is only closed out to 'win'/'loss' when its last share goes, at which point
+  // `profit` holds the lot's full realized P&L - so admin Net P&L counts a
+  // position exactly once.
+  // ---------------------------------------------------------------------------
+  var STOCK_PAIR_PREFIX = 'STOCK:';
+
+  function stockSymbol(pair) {
+    return String(pair || '').indexOf(STOCK_PAIR_PREFIX) === 0
+      ? String(pair).slice(STOCK_PAIR_PREFIX.length) : null;
+  }
+
+  function stockLots() {
+    var list = [];
+    if (!dbReadable()) return list;
+    try { list = DB.getTrades() || []; } catch (e) {}
+    return list.filter(function (r) { return r && stockSymbol(r.pair); });
+  }
+
+  function getStockHoldings() {
+    var bySym = {};
+    stockLots().forEach(function (r) {
+      var sym = stockSymbol(r.pair);
+      // A closed lot reports win/loss like any settled trade, so "held" is the
+      // only status that still represents an open position.
+      if (!sym || r.status !== 'held') return;
+      var shares = parseFloat(r.amount) || 0;
+      if (shares <= 0) return;
+      var h = bySym[sym];
+      if (!h) h = bySym[sym] = { symbol: sym, shares: 0, cost: 0, lots: [] };
+      h.shares += shares;
+      h.cost += shares * (parseFloat(r.price) || 0);
+      h.lots.push(r);
+    });
+    return Object.keys(bySym).map(function (sym) {
+      var h = bySym[sym];
+      h.avg = h.shares > 0 ? h.cost / h.shares : 0;
+      return h;
+    }).sort(function (a, b) { return String(a.symbol).localeCompare(String(b.symbol)); });
+  }
+
+  function stockQuote(symbol) {
+    var d = findCoin(symbol);
+    return d ? (parseFloat(d.price) || 0) : 0;
+  }
+
+  function getStockPortfolio() {
+    var out = { holdings: [], value: 0, cost: 0, pnl: 0 };
+    var rows = getStockHoldings();
+    rows.forEach(function (h) {
+      h.market = stockQuote(h.symbol);
+      h.value = h.market * h.shares;
+      h.pnl = h.value - h.cost;
+      h.pnlPct = h.cost > 0 ? (h.pnl / h.cost) * 100 : 0;
+      out.holdings.push(h);
+      out.value += h.value;
+      out.cost += h.cost;
+    });
+    out.pnl = out.value - out.cost;
+    return out;
+  }
+
+  function buyStock(symbol, shares, price) {
+    var uid = getUserId();
+    if (!uid) return Promise.resolve({ ok: false, msg: 'Please log in to buy stocks.' });
+    shares = parseFloat(shares);
+    price = parseFloat(price) || stockQuote(symbol);
+    if (!shares || shares <= 0) return Promise.resolve({ ok: false, msg: 'Enter a share count.' });
+    if (!price || price <= 0) return Promise.resolve({ ok: false, msg: 'No live price for ' + symbol + ' right now.' });
+    if (!stockQuote(symbol)) return Promise.resolve({ ok: false, msg: symbol + ' is not a listed stock.' });
+
+    var cost = shares * price;
+    var uidNum = uid;
+    var bal = parseFloat(getBalance(uid, 'USDT')) || 0;
+    if (cost > bal + 1e-9) {
+      return Promise.resolve({ ok: false, msg: 'Insufficient USDT balance. Required ' + cost.toFixed(2) + ' USDT.' });
+    }
+    addBalance(uid, 'USDT', -cost);
+
+    var acct = accountByUid(uid);
+    var payload = {
+      uid: uidNum,
+      account: acct ? acct.account : null,
+      pair: STOCK_PAIR_PREFIX + symbol,
+      side: 'buy',
+      amount: shares,
+      price: price,
+      status: 'held',
+      duration: 0,
+      profit: 0
+    };
+
+    var ledger = DB.addTransaction({
+      uid: uidNum,
+      type: 'stock_buy',
+      coin: 'USDT',
+      amount: -cost,
+      status: 'completed',
+      description: 'Bought ' + shares + ' ' + symbol + ' @ ' + price.toFixed(2)
+    }).catch(function () { return null; });
+
+    return DB.addTrade(payload).then(function () {
+      return ledger;
+    }).then(function () {
+      _notifyChange('trades');
+      _notifyChange('transactions');
+      return DB.pullBlob('trades').catch(function () {}).then(function () {
+        return { ok: true, cost: cost, shares: shares, price: price };
+      });
+    }).catch(function () {
+      addBalance(uid, 'USDT', cost);
+      return { ok: false, msg: 'Could not save the purchase. No charge was kept.' };
+    });
+  }
+
+  function sellStock(symbol, shares) {
+    var uid = getUserId();
+    if (!uid) return Promise.resolve({ ok: false, msg: 'Please log in to sell stocks.' });
+    shares = parseFloat(shares);
+    if (!shares || shares <= 0) return Promise.resolve({ ok: false, msg: 'Enter a share count.' });
+
+    var lot = stockLots().filter(function (r) {
+      return stockSymbol(r.pair) === String(symbol) && String(r.uid) === String(uid) && r.status === 'held';
+    });
+    var held = lot.reduce(function (n, r) { return n + (parseFloat(r.amount) || 0); }, 0);
+    if (shares > held + 1e-9) {
+      return Promise.resolve({ ok: false, msg: 'You only hold ' + held + ' shares.' });
+    }
+    var market = stockQuote(symbol);
+    if (!market || market <= 0) return Promise.resolve({ ok: false, msg: 'No live price for ' + symbol + ' right now.' });
+
+    var proceeds = shares * market;
+    var remaining = shares;
+    var ops = [];
+
+    for (var i = 0; i < lot.length && remaining > 1e-9; i++) {
+      var r = lot[i];
+      var lotShares = parseFloat(r.amount) || 0;
+      var take = Math.min(lotShares, remaining);
+      remaining -= take;
+      var lotCost = take * (parseFloat(r.price) || 0);
+      var delta = take * market - lotCost;
+      var newAmount = lotShares - take;
+
+      if (newAmount <= 1e-9) {
+        var closed = (parseFloat(r.profit) || 0) + delta;
+        ops.push(DB.updateTrade(r.id, {
+          status: closed >= 0 ? 'win' : 'loss',
+          profit: closed,
+          sellPrice: market,
+          settledAt: new Date().toISOString()
+        }));
+      } else {
+        ops.push(DB.updateTrade(r.id, {
+          amount: newAmount,
+          profit: (parseFloat(r.profit) || 0) + delta
+        }));
+      }
+    }
+
+    addBalance(uid, 'USDT', proceeds);
+    var acct = accountByUid(uid);
+    var ledger = DB.addTransaction({
+      uid: acct && acct.uid ? acct.uid : uid,
+      type: 'stock_sell',
+      coin: 'USDT',
+      amount: proceeds,
+      status: 'completed',
+      description: 'Sold ' + shares + ' ' + symbol + ' @ ' + market.toFixed(2)
+    }).catch(function () { return null; });
+
+    return Promise.all(ops.concat([ledger])).then(function () {
+      _notifyChange('trades');
+      _notifyChange('transactions');
+      return DB.pullBlob('trades').catch(function () {}).then(function () {
+        return { ok: true, proceeds: proceeds, shares: shares, price: market };
+      });
+    }).catch(function () {
+      return { ok: false, msg: 'Sale could not be recorded. Contact support.' };
+    });
   }
 
   // Auto-settle open trades whose duration has fully elapsed, so a user who
@@ -3303,6 +3527,12 @@ function addTxn(obj) {
     isMarketLive: isMarketLive,
     findCoin: findCoin,
     coinIconPath: coinIconPath,
+    buyStock: buyStock,
+    sellStock: sellStock,
+    getStockHoldings: getStockHoldings,
+    getStockPortfolio: getStockPortfolio,
+    stockQuote: stockQuote,
+    stockSymbol: stockSymbol,
     watchStorage: watchStorage,
     showImageLightbox: showImageLightbox,
     makeAdminTablesMobile: makeAdminTablesMobile,

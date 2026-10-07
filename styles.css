@@ -1243,3 +1243,52 @@ body.nav-open-lock{overflow:hidden}
 .img-lightbox-overlay img{max-width:92vw;max-height:88vh;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.45);object-fit:contain;cursor:default}
 .img-lightbox-close{position:fixed;top:16px;right:20px;width:38px;height:38px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10000;transition:background .15s}
 .img-lightbox-close:hover{background:rgba(255,255,255,.3)}
+
+/* ============ STOCKS: HOLDINGS + TRADE TICKET ============ */
+.stock-portfolio{margin-top:14px;background:linear-gradient(135deg,#fff,#f8f9fa);border:1px solid rgba(0,0,0,.05);border-radius:16px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.sp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.sp-head h3{margin:0;font-size:15px;color:#111827}
+.sp-totals{text-align:right}
+.sp-val{display:block;font-size:17px;font-weight:800;color:#111827}
+.sp-pnl{display:block;font-size:12.5px;font-weight:700}
+.sp-pnl.positive,.sp-nums span.positive{color:#16a34a}
+.sp-pnl.negative,.sp-nums span.negative{color:#dc2626}
+.sp-list{display:flex;flex-direction:column;gap:8px}
+.sp-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:9px 10px;background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:12px}
+.sp-sym b{display:block;font-size:14.5px;color:#111827}
+.sp-sym span,.sp-nums span{display:block;font-size:11.5px;color:#8b93a6;margin-top:2px}
+.sp-nums{text-align:right}
+.sp-nums b{font-size:14.5px;color:#111827}
+.sp-btn{border:1px solid #1652f0;background:rgba(22,82,240,.06);color:#1652f0;font-weight:700;font-size:12.5px;padding:7px 14px;border-radius:9px;cursor:pointer;transition:all .2s}
+.sp-btn:hover{background:#1652f0;color:#fff}
+
+.stock-ticket{position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.55);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:16px}
+.stock-ticket.open{display:flex}
+.st-card{background:#fff;border-radius:18px;width:100%;max-width:420px;padding:16px;box-shadow:0 18px 50px rgba(15,23,42,.28);animation:stIn .18s ease}
+@keyframes stIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.st-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px}
+.st-title{font-size:20px;font-weight:800;color:#111827;line-height:1.15}
+.st-sub{font-size:13px;color:#8b93a6;margin-top:3px}
+.st-close{border:none;background:#f1f5f9;color:#5a6b8c;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
+.st-close:hover:not(:disabled){background:#e2e8f0}
+.st-close:disabled{opacity:.5;cursor:not-allowed}
+.st-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px dashed #eef1f6;font-size:13.5px}
+.st-row span{color:#8b93a6}
+.st-row b{color:#111827;text-align:right;word-break:break-word}
+.st-label{display:block;font-size:13px;color:#8b93a6;margin:14px 0 6px}
+.st-input{width:100%;padding:12px 14px;border:1.5px solid #e5e9f2;border-radius:12px;font-size:17px;font-weight:700;color:#111827;outline:none;box-sizing:border-box;background:#fff}
+.st-input:focus{border-color:#1652f0;box-shadow:0 0 0 3px rgba(22,82,240,.12)}
+.st-input:disabled{background:#f5f7fa;color:#94a3b8}
+.st-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.st-btn{padding:13px 10px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s}
+.st-buy{background:#16a34a;color:#fff}
+.st-buy:hover:not(:disabled){background:#15803d}
+.st-sell{background:#1652f0;color:#fff}
+.st-sell:hover:not(:disabled){background:#123fbf}
+.st-btn:disabled,.st-btn.is-disabled{opacity:.45;cursor:not-allowed}
+.stock-ticket.busy .st-btn{opacity:.6;cursor:progress}
+@media (max-width:480px){
+  .sp-row{grid-template-columns:1fr auto;gap:8px}
+  .sp-actions{grid-column:1 / -1}
+  .sp-btn{width:100%}
+}
