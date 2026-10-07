@@ -387,6 +387,10 @@
       renderStockPortfolio();
       if (stockSym) openStockTicket(stockSym);
     });
+    // stockLots() is scoped to the signed-in uid, which is unknown until the
+    // async session restore resolves, so re-render once identity lands.
+    if (TrustApp.restoreSession) TrustApp.restoreSession().then(function () { renderStockPortfolio(); });
+    if (window.DB && DB.onReady) DB.onReady(function () { renderStockPortfolio(); });
 
     if (AppConfig.advancedAuthEnabled) {
       var adv = document.querySelector('.menu-advanced-auth');

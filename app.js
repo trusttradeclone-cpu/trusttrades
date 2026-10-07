@@ -885,6 +885,12 @@
     'acc.loan': { en: 'Loan', zh: '借款', ja: 'ローン', ko: '대출', fa: 'وام', de: 'Darlehen', fr: 'Prêt', es: 'Préstamo', it: 'Prestito', pt: 'Empréstimo', ru: 'Займ' },
     'acc.yourWallets': { en: 'Your Wallets', zh: '我的钱包', ja: 'マイウォレット', ko: '내 지갑', fa: 'کیف پول‌های من', de: 'Ihre Wallets', fr: 'Vos portefeuilles', es: 'Tus billeteras', it: 'I tuoi portafogli', pt: 'Suas carteiras', ru: 'Ваши кошельки' },
     'acc.estimatedTotal': { en: 'Estimated Total Value', zh: '预估总资产', ja: '推定合計額', ko: '예상 총 자산', fa: 'ارزش کل تخمینی', de: 'Geschätzter Gesamtwert', fr: 'Valeur totale estimée', es: 'Valor total estimado', it: 'Valore totale stimato', pt: 'Valor total estimado', ru: 'Оценочная общая стоимость' },
+    'acc.stockHoldings': { en: 'Stock Holdings', zh: '股票持仓', ja: '保有銘柄', ko: '보유 주식', fa: 'سهام در اختیار', de: 'Aktienbestand', fr: 'Positions en actions', es: 'Posiciones de valores', it: 'Partecipazioni azionarie', pt: 'Posições de ações', ru: 'Акционные позиции' },
+    'acc.stockValue': { en: 'Stock Portfolio Value', zh: '股票组合价值', ja: '株式ポートフォリオ価値', ko: '주식 포트폴리오 가치', fa: 'ارزش سبد سهام', de: 'Wert des Aktienportfolios', fr: 'Valeur du portefeuille d’actions', es: 'Valor de la cartera de valores', it: 'Valore del portafoglio azionario', pt: 'Valor da carteira de ações', ru: 'Стоимость портфеля акций' },
+    'acc.unrealizedPnl': { en: 'Unrealized P&L', zh: '未实现盈亏', ja: '未実現損益', ko: '미실현 손익', fa: 'سود و زیان تحقق‌نیافته', de: 'Nicht realisierter Gewinn/Verlust', fr: 'Plus/moins-value latente', es: 'Ganancias/pérdidas no realizadas', it: 'Utile/perdita non realizzato', pt: 'Lucros/prejuízos não realizados', ru: 'Нереализованная прибыль/убыток' },
+    'acc.realizedProfit': { en: 'Realized Profit', zh: '已实现收益', ja: '実現損益', ko: '실현 손익', fa: 'سود محقق‌شده', de: 'Realisierter Gewinn', fr: 'Profit réalisé', es: 'Ganancia realizada', it: 'Utile realizzato', pt: 'Lucro realizado', ru: 'Реализованная прибыль' },
+    'acc.totalProfit': { en: 'Total Profit', zh: '总收益', ja: '合計損益', ko: '총 손익', fa: 'سود کل', de: 'Gesamtgewinn', fr: 'Profit total', es: 'Ganancia total', it: 'Utile totale', pt: 'Lucro total', ru: 'Общая прибыль' },
+    'acc.noOpenStocks': { en: 'No open stock positions.', zh: '暂无持仓的股票。', ja: '保有中の銘柄はありません。', ko: '보유 중인 주식이 없습니다.', fa: 'هیچ سهمی در اختیار نیست.', de: 'Keine offenen Aktienpositionen.', fr: 'Aucune position ouverte.', es: 'No hay posiciones abiertas.', it: 'Nessuna posizione aperta.', pt: 'Nenhuma posição aberta.', ru: 'Открытых позиций нет.' },
 
     /* ---- funds ---- */
     'funds.title': { en: 'Funds Management', zh: '资金管理', ja: '資金管理', ko: '자금 관리', fa: 'مدیریت سرمایه', de: 'Geldverwaltung', fr: 'Gestion des fonds', es: 'Gestión de fondos', it: 'Gestione fondi', pt: 'Gestão de fundos', ru: 'Управление средствами' },
@@ -2217,8 +2223,15 @@ function addTxn(obj) {
   function stockLots() {
     var list = [];
     if (!dbReadable()) return list;
+    // Positions belong to whoever opened them: without this filter the account
+    // page and the index holdings panel would aggregate every user's lots.
+    // Admin views read DB.getTrades() directly and stay unscoped on purpose.
+    var uid = getUserId();
+    if (uid === null || uid === undefined || uid === '') return list;
     try { list = DB.getTrades() || []; } catch (e) {}
-    return list.filter(function (r) { return r && stockSymbol(r.pair); });
+    return list.filter(function (r) {
+      return r && stockSymbol(r.pair) && String(r.uid) === String(uid);
+    });
   }
 
   function getStockHoldings() {
@@ -2249,7 +2262,7 @@ function addTxn(obj) {
   }
 
   function getStockPortfolio() {
-    var out = { holdings: [], value: 0, cost: 0, pnl: 0 };
+    var out = { holdings: [], value: 0, cost: 0, pnl: 0, realized: 0, closed: 0, total: 0 };
     var rows = getStockHoldings();
     rows.forEach(function (h) {
       h.market = stockQuote(h.symbol);
@@ -2261,7 +2274,64 @@ function addTxn(obj) {
       out.cost += h.cost;
     });
     out.pnl = out.value - out.cost;
+    // A lot is either still held or closed, never both, so summing `profit`
+    // across those two states cannot double count: while held it carries the
+    // realized-so-far from partial sells, and once closed it carries the lot's
+    // full realized P&L. Skipping held lots would hide partial-sale gains.
+    out.closed = 0;
+    stockLots().forEach(function (r) {
+      if (r.status === 'held' || r.status === 'win' || r.status === 'loss') {
+        out.realized += parseFloat(r.profit) || 0;
+        if (r.status !== 'held') out.closed++;
+      }
+    });
+    out.total = out.pnl + out.realized;
     return out;
+  }
+
+  // Every user's open stock positions, for the admin dashboard. One entry per
+  // user+symbol, aggregated across lots, ordered by market value.
+  function getAllStockHoldings() {
+    var byKey = {};
+    var out = [];
+    if (!dbReadable()) return out;
+    var list = [];
+    try { list = DB.getTrades() || []; } catch (e) {}
+    list.forEach(function (r) {
+      var sym = stockSymbol(r.pair);
+      if (!sym || r.status !== 'held') return;
+      var shares = parseFloat(r.amount) || 0;
+      if (shares <= 0) return;
+      var key = String(r.uid) + '|' + sym;
+      var h = byKey[key];
+      if (!h) h = byKey[key] = { uid: r.uid, account: r.account, symbol: sym, shares: 0, cost: 0 };
+      h.shares += shares;
+      h.cost += shares * (parseFloat(r.price) || 0);
+    });
+    Object.keys(byKey).forEach(function (k) {
+      var h = byKey[k];
+      h.avg = h.shares > 0 ? h.cost / h.shares : 0;
+      h.market = stockQuote(h.symbol);
+      h.value = h.market * h.shares;
+      h.pnl = h.value - h.cost;
+      h.pnlPct = h.cost > 0 ? (h.pnl / h.cost) * 100 : 0;
+      out.push(h);
+    });
+    out.sort(function (a, b) { return b.value - a.value; });
+    return out;
+  }
+
+  // Realized P&L summed across every user's closed stock lots (admin view).
+  function getAllStockRealized() {
+    var total = 0;
+    if (!dbReadable()) return total;
+    var list = [];
+    try { list = DB.getTrades() || []; } catch (e) {}
+    list.forEach(function (r) {
+      if (!stockSymbol(r.pair)) return;
+      if (r.status === 'held' || r.status === 'win' || r.status === 'loss') total += parseFloat(r.profit) || 0;
+    });
+    return total;
   }
 
   function buyStock(symbol, shares, price) {
@@ -3531,6 +3601,8 @@ function addTxn(obj) {
     sellStock: sellStock,
     getStockHoldings: getStockHoldings,
     getStockPortfolio: getStockPortfolio,
+    getAllStockHoldings: getAllStockHoldings,
+    getAllStockRealized: getAllStockRealized,
     stockQuote: stockQuote,
     stockSymbol: stockSymbol,
     watchStorage: watchStorage,

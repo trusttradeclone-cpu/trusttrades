@@ -68,6 +68,26 @@
     <div class="wallet-list" id="walletList"></div>
   </section>
 
+  <section class="wallet-section" id="stockSection" style="display:none;">
+    <div class="section-header">
+      <div class="select-line"></div>
+      <h3 class="section-title" data-i18n="acc.stockHoldings">Stock Holdings</h3>
+    </div>
+
+    <div class="total-balance">
+      <div class="total-label" data-i18n="acc.stockValue">Stock Portfolio Value</div>
+      <div class="total-value" id="stTotalValue">$ 0.00</div>
+    </div>
+
+    <div class="stock-profit-grid">
+      <div class="spg-item"><span class="spg-label" data-i18n="acc.unrealizedPnl">Unrealized P&amp;L</span><b id="stUnrealized">$ 0.00</b></div>
+      <div class="spg-item"><span class="spg-label" data-i18n="acc.realizedProfit">Realized Profit</span><b id="stRealized">$ 0.00</b></div>
+      <div class="spg-item"><span class="spg-label" data-i18n="acc.totalProfit">Total Profit</span><b id="stTotalProfit">$ 0.00</b></div>
+    </div>
+
+    <div class="wallet-list" id="stockList"></div>
+  </section>
+
   <div class="toast-overlay" id="toastBox"></div>
 
   <script>
@@ -163,7 +183,72 @@
       requestAnimationFrame(function () {
         _renderScheduled = false;
         renderBalances();
+        renderStocks();
       });
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    function signed(n, dec) {
+      n = parseFloat(n) || 0;
+      if (!n) return '$ ' + fmt(0, dec == null ? 2 : dec);
+      return (n > 0 ? '+$ ' : '-$ ') + fmt(Math.abs(n), dec == null ? 2 : dec);
+    }
+
+    function paintSigned(id, n) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      n = parseFloat(n) || 0;
+      el.textContent = signed(n, 2);
+      el.className = 'spg-value ' + (n > 0 ? 'pos' : (n < 0 ? 'neg' : 'zero'));
+    }
+
+    function stockName(sym) {
+      var d = TrustApp.findCoin ? TrustApp.findCoin(sym) : null;
+      return d && d.n ? d.n : sym;
+    }
+
+    // Buy-and-hold positions live in the `trades` table with a STOCK: prefix
+    // (see app.js), so this reads the same rows the market tab writes.
+    function renderStocks() {
+      var box = document.getElementById('stockSection');
+      if (!box || !TrustApp.getStockPortfolio) return;
+      var p;
+      try { p = TrustApp.getStockPortfolio(); } catch (e) { return; }
+
+      // Keep the section visible after everything is sold so realized profit
+      // stays readable; hide it only for an account that never traded stocks.
+      if (!p.holdings.length && !p.closed) { box.style.display = 'none'; return; }
+      box.style.display = '';
+
+      setTxt('stTotalValue', '$ ' + fmt(p.value, 2));
+      paintSigned('stUnrealized', p.pnl);
+      paintSigned('stRealized', p.realized);
+      paintSigned('stTotalProfit', p.total);
+
+      var list = document.getElementById('stockList');
+      if (!list) return;
+      if (!p.holdings.length) {
+        list.innerHTML = '<div class="stock-empty">' + (TrustApp.t ? TrustApp.t('acc.noOpenStocks') : 'No open stock positions.') + '</div>';
+        return;
+      }
+      list.innerHTML = p.holdings.map(function (h) {
+        var pct = h.pnlPct;
+        return '<div class="wallet-item" onclick="location.href=\'index.html?tab=stocks\'">'
+          + '<div class="wallet-info">'
+          + '<div class="stock-badge">' + esc(String(h.symbol).substring(0, 2).toUpperCase()) + '</div>'
+          + '<div class="wallet-details"><h4 class="coin-name">' + esc(h.symbol) + '</h4>'
+          + '<p class="coin-subtitle">' + esc(stockName(h.symbol)) + ' &middot; ' + h.shares + ' sh @ $' + fmt(h.avg, 2) + '</p></div></div>'
+          + '<div class="wallet-balance">'
+          + '<p class="balance-usd">$ ' + fmt(h.value, 2) + '</p>'
+          + '<p class="balance-coin ' + (h.pnl > 0 ? 'pos' : (h.pnl < 0 ? 'neg' : 'zero')) + '">' + signed(h.pnl, 2)
+          + ' (' + (pct > 0 ? '+' : '') + pct.toFixed(2) + '%)</p>'
+          + '</div></div>';
+      }).join('');
     }
 
     // Instant initial render from cache if available
@@ -179,6 +264,7 @@
     }
 
     renderBalances();
+    renderStocks();
 
     // re-render once the async session restore resolves (uid is unknown until
     // then) and again when the DB finishes loading its tables.
@@ -189,6 +275,7 @@
     window.addEventListener('trustsync:user_balances', scheduleRender);
     window.addEventListener('trustsync:transactions', scheduleRender);
     window.addEventListener('trustsync:users', scheduleRender);
+    window.addEventListener('trustsync:trades', scheduleRender);
 
     // Fallback polling
     window.addEventListener('storage', function (e) {
