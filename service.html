@@ -196,7 +196,9 @@
     var uid = null;
     window.addEventListener('trustsync:users', function () { render(); });
     window.addEventListener('trustsync:chat_messages', function () { render(); if (uid && TrustApp.markUserChatRead) TrustApp.markUserChatRead(uid); });
-    guestUid().then(function (g) {
+    restoreSession().then(function () {
+      return guestUid();
+    }).then(function (g) {
       uid = g;
       TrustApp.ensureSupportGreeting(uid);
       render();
