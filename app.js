@@ -3445,22 +3445,23 @@ function addTxn(obj) {
       if (s.admin) return; // admin session may browse private pages
       if (s.uid == null) return goLogin();
       // A confirmed identity may stay -- unless the account was deactivated.
-      var u = accountByUid(getUserId());
+      var u = null;
+      try { u = accountByUid(getUserId()); } catch (e) {}
       if (u && u.status === 'inactive') {
         try { logout(); } catch (e) {}
         return goLogin(true);
       }
     }
 
-    // Validate against the DB. If the DB cannot be reached, do NOT let a
-    // logged-out visitor keep exploring a private page: without a confirmable
-    // identity, bounce to login after a short grace so real loading isn't
-    // interrupted (a stale left-open tab would otherwise stay explorable).
+    // Validate against the DB. Never bounce a user while a session restore is
+    // still in flight: a slow bootstrap must not be mistaken for "logged out".
     var inFlight = false;
     function recheck() {
       if (redirected || inFlight) return;
       inFlight = true;
       var resolved = false;
+      var dbConnectedAt = null;
+      var t0 = Date.now();
       restoreSession().then(function (s) {
         resolved = true;
         inFlight = false;
@@ -3470,18 +3471,20 @@ function addTxn(obj) {
         inFlight = false;
         goLogin();
       });
-      // The grace period must not expire before restoreSession() even has the
-      // chance to answer: it only resolves once the whole DB bootstrap has
-      // finished, so a fixed 8s budget measured from page load threw away
-      // perfectly valid sessions whenever the network was slow. Start counting
-      // only once the DB is actually connected.
-      var t0 = Date.now();
+      // Backup timer: only redirects after the DB has been connected long enough
+      // for restoreSession() (max ~10s) to have answered, or after a generous
+      // offline grace. It never cuts off an in-flight restore.
       var timer = setInterval(function () {
         if (redirected || resolved) { clearInterval(timer); return; }
-        if (Date.now() - t0 < (dbActive() ? 8000 : 45000)) return;
-        clearInterval(timer);
-        if (_session && _session.uid != null) return;
-        goLogin();
+        if (!dbActive()) {
+          if (Date.now() - t0 >= 45000) { clearInterval(timer); goLogin(); }
+          return;
+        }
+        if (dbConnectedAt === null) dbConnectedAt = Date.now();
+        if (Date.now() - dbConnectedAt >= 20000) {
+          clearInterval(timer);
+          if (!(_session && _session.uid != null)) goLogin();
+        }
       }, 500);
     }
     function check() {
@@ -3503,6 +3506,27 @@ function addTxn(obj) {
     setInterval(function () {
       if (!document.hidden && !redirected) recheck();
     }, 30000);
+  })();
+
+  // Unauthenticated visitors on any page other than login/register: redirect to
+  // login the moment they try to use a button.
+  (function guardButtons() {
+    var f = (location.pathname.split('/').pop() || '').toLowerCase();
+    if (f === 'login.html' || f === 'register.html') return;
+    if (f.indexOf('admin') === 0) return;
+    document.addEventListener('click', function (e) {
+      if (window.TrustApp && TrustApp.isLoggedIn && TrustApp.isLoggedIn()) return;
+      var hasCookie = false;
+      try { hasCookie = document.cookie.indexOf('trsstok=') !== -1; } catch (err) {}
+      if (hasCookie) return; // session may still be restoring; let guardAuth handle
+      var t = e.target;
+      var btn = (t && typeof t.closest === 'function') ? t.closest('button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]') : null;
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var url = 'login.html?r=' + encodeURIComponent(f + location.search);
+      if (window.location.replace) window.location.replace(url); else window.location.href = url;
+    }, true);
   })();
 
   function marketToTradeQuery(d, tab) {
