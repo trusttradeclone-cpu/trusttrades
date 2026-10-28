@@ -1376,10 +1376,10 @@
     function doRestore() {
       var tok = getToken();
       if (!tok) { _session = null; return Promise.resolve(null); }
-      if (!dbActive()) return Promise.resolve(_session || null);
+      if (!(typeof DB !== 'undefined' && DB && DB.ENABLED)) return Promise.resolve(_session || null);
       return getSessionWithRetry(tok, 3);
     }
-    if (dbActive()) return doRestore();
+    if (typeof DB !== 'undefined' && DB && DB.ENABLED) return doRestore();
     return new Promise(function (res) {
       if (typeof DB !== 'undefined' && DB.onReady) DB.onReady(function () { res(doRestore()); });
       else res(doRestore());
@@ -2980,6 +2980,14 @@ function addTxn(obj) {
     };
     if (attachments && attachments.length) msg.attachments = attachments.slice(0, 6);
     if (dbActive()) {
+      // Optimistic cache insert so the message shows immediately (no round-trip delay).
+      try {
+        var _cc = DB._cache = DB._cache || {};
+        var _cm = _cc.chatMessages = _cc.chatMessages || {};
+        var _cl = _cm[uid] = _cm[uid] || [];
+        _cl.push({ id: msg.mid, uid: uid, from_role: msg.from, message: msg.text, created_at: msg.at, attachments: msg.attachments || null, read_at: null, deleted: false, edited_at: null });
+      } catch (e) {}
+      _notifyChange('chat_messages');
       var extra = msg.attachments ? { attachments: msg.attachments } : null;
       DB.sendChatMessage(uid, msg.from, msg.text, extra).then(function (row) {
         if (row && row.id) msg.mid = String(row.id);
@@ -3027,6 +3035,33 @@ function addTxn(obj) {
     });
     if (touched && dbActive()) DB.markChatRead(uid).catch(function () {});
     return touched;
+  }
+
+  // mark admin messages as read by the user
+  function markUserChatRead(uid) {
+    if (!uid) return false;
+    var list = getChat(uid);
+    var touched = false;
+    list.forEach(function (msg) {
+      if (msg && msg.from === 'admin' && !msg.seen) {
+        msg.seen = true; touched = true;
+        try {
+          var rows = (DB._cache.chatMessages || {})[uid] || [];
+          rows.forEach(function (r) { if (String(r.id) === String(msg.mid)) r.read_at = new Date().toISOString(); });
+        } catch (e) {}
+      }
+    });
+    if (touched && dbActive()) {
+      try { DB.markChatReadForUser(uid).catch(function () {}); } catch (e) {}
+    }
+    return touched;
+  }
+
+  function unreadAdminCount(uid) {
+    if (!uid) return 0;
+    var n = 0;
+    try { getChat(uid).forEach(function (m) { if (m && m.from === 'admin' && !m.seen) n++; }); } catch (e) {}
+    return n;
   }
 
   function chatUsers() {
@@ -3905,6 +3940,8 @@ function addTxn(obj) {
     updateChatMsg: updateChatMsg,
     deleteChatMsg: deleteChatMsg,
     markChatSeen: markChatSeen,
+    markUserChatRead: markUserChatRead,
+    unreadAdminCount: unreadAdminCount,
     removeUser: removeUser,
     accountByUid: accountByUid,
     getVerifications: getVerifications,

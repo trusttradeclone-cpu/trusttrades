@@ -195,11 +195,12 @@
 
     var uid = null;
     window.addEventListener('trustsync:users', function () { render(); });
-    window.addEventListener('trustsync:chat_messages', function () { render(); });
+    window.addEventListener('trustsync:chat_messages', function () { render(); if (uid && TrustApp.markUserChatRead) TrustApp.markUserChatRead(uid); });
     guestUid().then(function (g) {
       uid = g;
       TrustApp.ensureSupportGreeting(uid);
       render();
+      if (uid && TrustApp.markUserChatRead) TrustApp.markUserChatRead(uid);
     });
     var pinnedBottom = true;
 

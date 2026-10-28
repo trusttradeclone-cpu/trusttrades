@@ -723,6 +723,9 @@ var TrustDB = (function () {
       if (!unreadIds.length) return Promise.resolve();
       return this.q('chat_messages?uid=eq.' + uid + '&id=in.(' + unreadIds.join(',') + ')', { method: 'PATCH', body: { read_at: new Date().toISOString() } });
     },
+    markChatReadForUser: function (uid) {
+      return this.q('chat_messages?uid=eq.' + uid + '&from_role=eq.admin&read_at=is.null', { method: 'PATCH', body: { read_at: new Date().toISOString() } });
+    },
 
     // Coin Addresses
     getCoinAddresses: function () { return this._cache.coinAddresses; },
