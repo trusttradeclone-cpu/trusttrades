@@ -9,6 +9,17 @@
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="img/logo.png">
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .wd-dest-cell{white-space:normal;vertical-align:top}
+    .wd-dest{display:flex;flex-direction:column;gap:2px;max-width:440px;min-width:220px}
+    .wd-dest-line{font-size:11.5px;line-height:1.5;color:#5b6472;white-space:normal;word-break:break-all}
+    .wd-dest-line.wd-mono{font-family:Consolas,Menlo,monospace;font-size:12px;color:#131f30;user-select:all}
+    .wd-dest-line .wd-k{font-weight:700;color:#8a94a6;margin-right:4px}
+    .wd-copy{margin-top:3px;align-self:flex-start;padding:3px 8px;font-size:11px;line-height:1.2;border:1px solid #dbe4ff;border-radius:6px;background:#f5f8ff;white-space:nowrap}
+    .wd-copy:hover{background:#eaf1ff}
+    .wd-copy:active{transform:translateY(1px)}
+    @media (max-width:640px){.wd-dest{min-width:0;max-width:100%}.wd-copy{align-self:flex-start}.arc-row:has(.wd-dest){align-items:flex-start;flex-wrap:wrap}.arc-row:has(.wd-dest) .arc-value{flex:1 1 100%;max-width:100%;text-align:left}}
+  </style>
   <script src="scripts/config.js"></script>
   <script src="scripts/supabase-client.js"></script>
     <script src="scripts/db.js"></script>
@@ -117,7 +128,7 @@
       </div>
       <div class="admin-table-wrap">
         <table>
-          <thead><tr><th>User</th><th>Asset</th><th>Amount</th><th>Action</th></tr></thead>
+          <thead><tr><th>User</th><th>Asset</th><th>Amount</th><th>Destination</th><th>Action</th></tr></thead>
           <tbody id="wdRows"></tbody>
         </table>
       </div>
@@ -210,6 +221,108 @@
       toast(status === 'confirmed' ? 'success' : 'error', 'Withdrawal ' + (status === 'confirmed' ? 'approved' : 'rejected'));
       renderAll();
     }
+
+    function fmtCard(card) {
+      var c = String(card || '').replace(/\s+/g, '');
+      return c.replace(/(.{4})/g, '$1 ').trim();
+    }
+
+    // addTxn() prefixes the account to the description; remove it so the
+    // details cell shows only the withdrawal destination.
+    function cleanWdNote(t) {
+      var note = String(t.note || '').trim();
+      var acct = String(t.account || '').trim();
+      if (acct && note.indexOf(acct) === 0) note = note.slice(acct.length).trim();
+      note = note.replace(/^\[(?:debit|credit)\]\s*/i, '').trim();
+      if (acct && note.indexOf(acct) === 0) note = note.slice(acct.length).trim();
+      // Legacy rows may still carry the account prefix when the users cache
+      // was not ready while mapping the row. Start at the withdrawal wording
+      // so the destination is shown and copied on its own.
+      var m = /(?:Bank card withdrawal|Withdrawal)\s+to\s+[\s\S]+$/i.exec(note);
+      if (m) note = m[0];
+      return note;
+    }
+
+    // Full destination for one withdrawal. Structured columns win; legacy
+    // rows fall back to the full note (never a truncated slice). `copy` is the
+    // exact value the admin needs (crypto address, card number, or details).
+    function withdrawalDestination(t) {
+      var address = String(t.address || '').trim();
+      var card = String(t.card || '').replace(/\s+/g, '');
+      var holder = String(t.holder || '').trim();
+      var bank = String(t.bank || '').trim();
+      var branch = String(t.branch || '').trim();
+      var method = String(t.method || '').toLowerCase();
+      var note = cleanWdNote(t);
+
+      if (address) {
+        return {
+          html: '<div class="wd-dest-line wd-mono">' + esc(address) + '</div>',
+          copy: address,
+          title: 'Copy withdrawal address'
+        };
+      }
+      if (method === 'bank' || card || holder || bank) {
+        var html = [];
+        if (holder) html.push('<div class="wd-dest-line"><span class="wd-k">Holder</span>' + esc(holder) + '</div>');
+        if (bank) html.push('<div class="wd-dest-line"><span class="wd-k">Bank</span>' + esc(bank) + '</div>');
+        if (card) html.push('<div class="wd-dest-line wd-mono"><span class="wd-k">Card</span>' + esc(fmtCard(card)) + '</div>');
+        if (branch) html.push('<div class="wd-dest-line"><span class="wd-k">Branch</span>' + esc(branch) + '</div>');
+        if (!html.length && note) html.push('<div class="wd-dest-line">' + esc(note) + '</div>');
+        var details = [];
+        if (holder) details.push('Holder: ' + holder);
+        if (bank) details.push('Bank: ' + bank);
+        if (card) details.push('Card: ' + card);
+        if (branch) details.push('Branch: ' + branch);
+        return {
+          html: html.join(''),
+          copy: card || details.join(' · ') || note,
+          title: card ? 'Copy card number' : 'Copy withdrawal details'
+        };
+      }
+      if (note) {
+        var target = note;
+        var m = /^(?:Bank card withdrawal|Withdrawal)\s+to\s+([\s\S]+)$/i.exec(note);
+        if (m) target = m[1].trim();
+        return {
+          html: '<div class="wd-dest-line">' + esc(note) + '</div>',
+          copy: target,
+          title: 'Copy withdrawal details'
+        };
+      }
+      return { html: '<span class="muted">--</span>', copy: '', title: '' };
+    }
+
+    function fallbackCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      var ok = false;
+      try {
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        ok = document.execCommand('copy');
+      } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+
+    function copyWithdrawal(btn) {
+      var text = btn ? btn.getAttribute('data-copy') : '';
+      if (!text) { toast('error', 'Nothing to copy'); return; }
+      var done = function (ok) {
+        toast(ok ? 'success' : 'error', ok ? 'Copied to clipboard' : 'Copy failed — select the address manually');
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+      } else {
+        done(fallbackCopy(text));
+      }
+    }
     function renderAll() {
       var txns = TrustApp.getTxns();
       var deps = txns.filter(function (t) { return t.type === 'deposit' || t.type === 'referral_bonus'; }).sort(byNew).slice(0, 20);
@@ -249,22 +362,14 @@
       }
       var wdBox = document.getElementById('wdRows');
       if (!wds.length) {
-        wdBox.innerHTML = '<tr><td colspan="4"><div class="empty-state"><span class="es-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9"></path><path d="M16 15v5"></path><path d="m16 15-2 2 2 2 2-2-2-2Z"></path></svg></span>No pending withdrawals</div></td></tr>';
+        wdBox.innerHTML = '<tr><td colspan="5"><div class="empty-state"><span class="es-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9"></path><path d="M16 15v5"></path><path d="m16 15-2 2 2 2 2-2-2-2Z"></path></svg></span>No pending withdrawals</div></td></tr>';
       } else {
         wdBox.innerHTML = wds.map(function (t) {
-          var dest = '';
-          if (t.method === 'bank' || (!t.method && (t.holder || t.card))) {
-            var bBits = [esc(t.holder || ''), esc(t.bank || '')];
-            if (t.card) bBits.push('****' + esc(String(t.card).replace(/\s+/g, '').slice(-4)));
-            if (t.branch) bBits.push(esc(t.branch));
-            dest = '<div class="mc-sub">Bank card &#183; ' + bBits.filter(Boolean).join(' &#183; ') + '</div>';
-          } else if (t.address) {
-            var addr = String(t.address);
-            dest = '<div class="mc-sub">' + esc(addr.slice(0, 30) + (addr.length > 30 ? '...' : '')) + '</div>';
-          } else if (t.note) {
-            dest = '<div class="mc-sub">' + esc(String(t.note).slice(0, 70)) + '</div>';
-          }
-          return '<tr data-id="' + esc(t.id) + '"><td><div class="user-cell"><div class="user-ava">' + esc((t.account || '?').charAt(0).toUpperCase()) + '</div><div class="user-meta"><div class="user-name">' + esc(t.account) + '</div><div class="user-uid">' + esc(t.uid) + '</div></div></div></td><td><span class="tag">' + esc(t.coin) + '</span></td><td><div class="money-cell">' + fmtAmt(t.amount, t.coin) + ' ' + esc(t.coin) + '</div>' + dest + '</td><td>' + wdBtns + '</td></tr>';
+          var dest = withdrawalDestination(t);
+          var copyBtn = dest.copy
+            ? '<button type="button" class="copy-btn wd-copy" data-copy="' + esc(dest.copy) + '" onclick="copyWithdrawal(this)" title="' + esc(dest.title) + '">Copy</button>'
+            : '';
+          return '<tr data-id="' + esc(t.id) + '"><td><div class="user-cell"><div class="user-ava">' + esc((t.account || '?').charAt(0).toUpperCase()) + '</div><div class="user-meta"><div class="user-name">' + esc(t.account) + '</div><div class="user-uid">' + esc(t.uid) + '</div></div></div></td><td><span class="tag">' + esc(t.coin) + '</span></td><td><div class="money-cell">' + fmtAmt(t.amount, t.coin) + ' ' + esc(t.coin) + '</div></td><td class="wd-dest-cell"><div class="wd-dest">' + dest.html + copyBtn + '</div></td><td>' + wdBtns + '</td></tr>';
         }).join('');
       }
     }
