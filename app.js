@@ -2860,80 +2860,224 @@ function addTxn(obj) {
     return scheds;
   }
 
+  function aiSettleIntervalHours() {
+    var cfg = getConfig();
+    var h = parseFloat(cfg.aiQuantSettleIntervalHours);
+    if (!isFinite(h) || h < 1) h = 24;
+    return h;
+  }
+
+  function aiOrderSnapshot(id) {
+    var list = getAIOrders();
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].id) === String(id)) return list[i];
+    }
+    return null;
+  }
+
+  // Pure settlement calculation. `settled_days` is the authoritative count:
+  // start there so a stale/missing schedule flag can never re-credit a day
+  // that has already been paid. Returns null when nothing is due.
+  function computeAISettlement(o, opts) {
+    opts = opts || {};
+    var now = opts.now || Date.now();
+    var maxDays = opts.maxDays > 0 ? opts.maxDays : Infinity;
+    var force = !!opts.forceNext;
+    var period = parseInt(o.period, 10) || 7;
+    var amount = parseFloat(o.amount) || 0;
+    var settledBefore = parseInt(o.settledDays, 10);
+    if (!isFinite(settledBefore) || settledBefore < 0) settledBefore = 0;
+    if (settledBefore > period) settledBefore = period;
+    var src = o.schedules || [];
+    var scheds = [];
+    for (var i = 0; i < src.length; i++) {
+      scheds.push({
+        day: src[i].day,
+        status: src[i].status,
+        rate: src[i].rate,
+        profit: src[i].profit,
+        time: src[i].time
+      });
+    }
+    var newDays = 0;
+    var newSettled = settledBefore;
+    var credit = 0;
+    var lastDay = settledBefore;
+    for (var d = settledBefore; d < scheds.length && newDays < maxDays; d++) {
+      var s = scheds[d];
+      if (s.status === 1) {
+        // Already stamped settled by an older run; count it but never pay it.
+        newSettled++;
+        continue;
+      }
+      var ts = new Date(s.time).getTime();
+      if (!force && (!isFinite(ts) || ts > now)) break;
+      var rate = Math.round((o.rateMin + Math.random() * (o.rateMax - o.rateMin)) * 100) / 100;
+      var dayProfit = Math.round(amount * rate) / 100;
+      s.status = 1;
+      s.rate = rate;
+      s.profit = dayProfit;
+      newSettled++;
+      newDays++;
+      credit = Math.round((credit + dayProfit) * 100) / 100;
+      lastDay = s.day || (d + 1);
+    }
+    if (!newDays) return null;
+    var completed = newSettled >= period;
+    var newProfit = Math.round(((parseFloat(o.profit) || 0) + credit) * 100) / 100;
+    var patch = {
+      settled_days: newSettled,
+      profit: newProfit,
+      principal: Math.round((amount + newProfit) * 100) / 100,
+      schedules: scheds
+    };
+    if (completed) {
+      patch.status = 'completed';
+      patch.end_at = new Date().toISOString();
+    }
+    return {
+      patch: patch,
+      settledBefore: settledBefore,
+      newSettled: newSettled,
+      days: newDays,
+      lastDay: lastDay,
+      profit: credit,
+      // Principal is refunded with the final day's profit in the same claim.
+      credit: completed ? Math.round((credit + amount) * 100) / 100 : credit,
+      completed: completed
+    };
+  }
+
+  function approveAIOrderInternal(o, intervalHours) {
+    var period = parseInt(o.period, 10) || 7;
+    var startAt = new Date().toISOString();
+    return DB.updateAIOrderIf(String(o.id), {
+      status: 'running',
+      start_at: startAt,
+      end_at: new Date(Date.now() + period * intervalHours * 3600000).toISOString(),
+      settled_days: 0,
+      profit: 0,
+      principal: parseFloat(o.amount) || 0,
+      schedules: buildAISchedules(period, intervalHours, startAt)
+    }, 'status=eq.pending').then(function (row) { return !!row; });
+  }
+
+  // Conditional claim + credit. The DB row is first moved forward only if it
+  // still has the status/settled_days we based the decision on; only the tab
+  // whose PATCH returns a row credits the balance. Every other tab gets [].
+  function settleAIOrderDays(o, opts) {
+    var result = computeAISettlement(o, opts);
+    if (!result) return Promise.resolve({ ok: false, reason: 'not-due' });
+    return DB.updateAIOrderIf(String(o.id), result.patch,
+      'status=eq.running&settled_days=eq.' + result.settledBefore
+    ).then(function (row) {
+      if (!row) return { ok: false, reason: 'claimed' };
+      var p = (o.uid != null && result.credit > 0)
+        ? addBalance(o.uid, 'USDT', result.credit)
+        : Promise.resolve();
+      return Promise.resolve(p).catch(function () {}).then(function () {
+        return {
+          ok: true,
+          days: result.days,
+          lastDay: result.lastDay,
+          profit: result.profit,
+          credit: result.credit,
+          completed: result.completed
+        };
+      });
+    });
+  }
+
+  function approveAIOrder(id) {
+    if (!dbActive()) return Promise.reject(new Error('Database not ready'));
+    var o = aiOrderSnapshot(id);
+    if (!o) return Promise.reject(new Error('Order not found'));
+    if (o.status !== 'pending') return Promise.resolve(false);
+    return approveAIOrderInternal(o, aiSettleIntervalHours());
+  }
+
+  function rejectAIOrder(id) {
+    if (!dbActive()) return Promise.reject(new Error('Database not ready'));
+    var o = aiOrderSnapshot(id);
+    if (!o) return Promise.reject(new Error('Order not found'));
+    if (o.status !== 'pending') return Promise.resolve(false);
+    return DB.updateAIOrderIf(String(o.id), { status: 'rejected' }, 'status=eq.pending')
+      .then(function (row) {
+        if (!row) return false;
+        var refund = (o.uid != null && o.amount > 0)
+          ? addBalance(o.uid, 'USDT', o.amount)
+          : Promise.resolve();
+        return Promise.resolve(refund).catch(function () {}).then(function () { return true; });
+      });
+  }
+
+  function settleAIOrderDay(id) {
+    if (!dbActive()) return Promise.reject(new Error('Database not ready'));
+    var o = aiOrderSnapshot(id);
+    if (!o) return Promise.reject(new Error('Order not found'));
+    return settleAIOrderDays(o, { forceNext: true, maxDays: 1 });
+  }
+
+  var aiProcessRunning = false;
+  var aiProcessQueued = false;
+
   function aiProcess() {
+    if (aiProcessRunning) {
+      aiProcessQueued = true;
+      return Promise.resolve(false);
+    }
+    var cfg, approveMs, intervalHours;
     try {
-      var cfg = getConfig();
-      if (!cfg.aiQuantEnabled) return false;
+      cfg = getConfig();
+      if (!cfg.aiQuantEnabled) return Promise.resolve(false);
       var approveMin = parseFloat(cfg.aiQuantAutoApproveMin);
       if (!isFinite(approveMin) || approveMin < 0) approveMin = 1;
-      var approveMs = approveMin * 60000;
-      var intervalHours = parseFloat(cfg.aiQuantSettleIntervalHours);
+      approveMs = approveMin * 60000;
+      intervalHours = parseFloat(cfg.aiQuantSettleIntervalHours);
       if (!isFinite(intervalHours) || intervalHours < 1) intervalHours = 24;
-      var intervalMs = intervalHours * 3600000;
+    } catch (e) {
+      return Promise.resolve(false);
+    }
+    if (!dbActive()) return Promise.resolve(false);
+    var actions = [];
+    try {
       var list = getAIOrders();
-      if (!list.length) return false;
-      var changed = false;
+      var now = Date.now();
       for (var i = 0; i < list.length; i++) {
-        var o = list[i];
-        if (o.status === 'pending') {
-          if (Date.now() - new Date(o.createdAt).getTime() >= approveMs) {
-            var startAt = new Date().toISOString();
-            o.status = 'running';
-            o.startAt = startAt;
-            o.schedules = buildAISchedules(o.period, intervalHours, startAt);
-            o.endAt = new Date(Date.now() + o.period * intervalMs).toISOString();
-            o.settledDays = 0;
-            o.profit = 0;
-            o.principal = o.amount;
-            changed = true;
-          }
-        } else if (o.status === 'running') {
-          var scheds = o.schedules || [];
-          var settled = 0;
-          var credit = 0;
-          for (var d = 0; d < scheds.length; d++) {
-            var s = scheds[d];
-            if (s.status === 1) { settled++; continue; }
-            if (new Date(s.time).getTime() <= Date.now()) {
-              var rate = Math.round((o.rateMin + Math.random() * (o.rateMax - o.rateMin)) * 100) / 100;
-              var dayProfit = Math.round(o.amount * rate) / 100;
-              s.status = 1;
-              s.rate = rate;
-              s.profit = dayProfit;
-              settled++;
-              credit += dayProfit;
-              o.profit = Math.round(((o.profit || 0) + dayProfit) * 100) / 100;
+        (function (o) {
+          if (o.status === 'pending') {
+            var created = new Date(o.createdAt).getTime();
+            if (isFinite(created) && now - created >= approveMs) {
+              actions.push(function () { return approveAIOrderInternal(o, intervalHours); });
             }
+          } else if (o.status === 'running') {
+            actions.push(function () {
+              return settleAIOrderDays(o, { now: now }).then(function (r) { return !!(r && r.ok); });
+            });
           }
-          o.settledDays = settled;
-          o.principal = Math.round((o.amount + (o.profit || 0)) * 100) / 100;
-          if (settled >= o.period) {
-            o.status = 'completed';
-            o.endAt = new Date().toISOString();
-            credit += o.amount;
-          }
-          // Credit each order once per tick with the aggregated sum so a
-          // multi-day catch-up cannot clobber itself with stale write-backs.
-          if (credit > 0 && o.uid) addBalance(o.uid, 'USDT', Math.round(credit * 100) / 100);
-          if (settled > 0) changed = true;
-        }
+        })(list[i]);
       }
-      if (changed && dbActive()) {
-        // Persist any mutated orders back to Supabase.
-        for (var ai = 0; ai < list.length; ai++) {
-          var oo = list[ai];
-          if (oo.status === 'running' || oo.status === 'completed') {
-            DB.updateAIOrder(String(oo.id), {
-              status: oo.status, start_at: oo.startAt, end_at: oo.endAt,
-              settled_days: oo.settledDays, profit: oo.profit, principal: oo.principal, schedules: oo.schedules
-            }).catch(function () {});
-          }
-        }
+    } catch (e) {
+      return Promise.resolve(false);
+    }
+    if (!actions.length) return Promise.resolve(false);
+    aiProcessRunning = true;
+    var changed = false;
+    var chain = Promise.resolve();
+    actions.forEach(function (fn) {
+      chain = chain.then(function () {
+        return fn().then(function (did) { if (did) changed = true; }).catch(function () {});
+      });
+    });
+    var finish = function () {
+      aiProcessRunning = false;
+      if (aiProcessQueued) {
+        aiProcessQueued = false;
+        setTimeout(function () { try { aiProcess(); } catch (e) {} }, 0);
       }
       return changed;
-    } catch (e) {
-      return false;
-    }
+    };
+    return chain.then(finish, finish);
   }
 
   var SUPPORT_GREETING = 'Hello! Welcome to Trust Wallet Support. How can I help you today?';
@@ -3931,6 +4075,9 @@ function addTxn(obj) {
     addAIOrder: addAIOrder,
     updateAIOrder: updateAIOrder,
     buildAISchedules: buildAISchedules,
+    approveAIOrder: approveAIOrder,
+    rejectAIOrder: rejectAIOrder,
+    settleAIOrderDay: settleAIOrderDay,
     aiProcess: aiProcess,
     getChat: getChat,
     chatUsers: chatUsers,

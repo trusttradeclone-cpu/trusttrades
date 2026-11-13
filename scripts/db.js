@@ -948,6 +948,41 @@ var TrustDB = (function () {
       if (p.id) delete p.id;
       return this.q('ai_orders?id=eq.' + id, { method: 'PATCH', body: p });
     },
+    // Conditional update, used as an atomic claim by the AI engine. The PATCH
+    // only succeeds when the row still matches the state the caller based its
+    // decision on, so two tabs settling the same day cannot both credit it.
+    // Returns the updated row, or null when another client already claimed it.
+    updateAIOrderIf: function (id, patch, matchQuery) {
+      var self = this;
+      var p = Object.assign({}, patch || {});
+      if (p.schedules && typeof p.schedules === 'object') p.schedules = JSON.stringify(p.schedules);
+      if (p.id) delete p.id;
+      var qs = 'ai_orders?id=eq.' + encodeURIComponent(String(id));
+      if (typeof matchQuery === 'string' && matchQuery) {
+        qs += (matchQuery.charAt(0) === '&' ? '' : '&') + matchQuery;
+      } else if (matchQuery && typeof matchQuery === 'object') {
+        for (var k in matchQuery) {
+          if (!Object.prototype.hasOwnProperty.call(matchQuery, k)) continue;
+          qs += '&' + k + '=eq.' + encodeURIComponent(String(matchQuery[k]));
+        }
+      }
+      return this.q(qs, { method: 'PATCH', body: p }).then(function (rows) {
+        var row = rows && rows[0];
+        if (!row) return null;
+        // Reflect the winning write immediately; realtime may already have
+        // delivered it, in which case replace the row in place.
+        var list = self._cache.aiOrders = self._cache.aiOrders || [];
+        var idx = -1;
+        for (var i = 0; i < list.length; i++) {
+          if (String(list[i].id) === String(row.id)) { idx = i; break; }
+        }
+        if (idx >= 0) list[idx] = row;
+        else list.push(row);
+        if (self._rowAt) self._rowAt['ai_orders:' + row.id] = Date.now();
+        self._dispatchTrustSync('ai_orders');
+        return row;
+      });
+    },
 
     // Chat edits / soft-delete
     editChatMessage: function (uid, id, text) {

@@ -257,22 +257,12 @@
     }
 
     function approveOrder(id) {
-      var o = o2(id);
-      var cfg = TrustApp.getConfig();
-      var intervalHours = parseFloat(cfg.aiQuantSettleIntervalHours);
-      if (!isFinite(intervalHours) || intervalHours < 1) intervalHours = 24;
-      var startAt = new Date().toISOString();
-      TrustApp.updateAIOrder(id, {
-        status: 'running',
-        startAt: startAt,
-        endAt: new Date(Date.now() + (o ? o.period : 7) * intervalHours * 3600000).toISOString(),
-        schedules: TrustApp.buildAISchedules ? TrustApp.buildAISchedules(o ? o.period : 7, intervalHours, startAt) : (o ? o.schedules : []),
-        settledDays: 0,
-        profit: 0,
-        principal: o ? o.amount : 0
-      });
-      toast('success', 'Order approved and running');
-      renderAll();
+      if (!TrustApp.approveAIOrder) return;
+      TrustApp.approveAIOrder(id).then(function (ok) {
+        if (ok) toast('success', 'Order approved and running');
+        else toast('error', 'Order was already processed');
+        renderAll();
+      }).catch(function () { toast('error', 'Could not approve order'); });
     }
     function o2(id) {
       var all = (TrustApp.getAIOrders ? TrustApp.getAIOrders() : []) || [];
@@ -281,46 +271,25 @@
     }
 
     function rejectOrder(id) {
-      var o = o2(id);
-      TrustApp.updateAIOrder(id, { status: 'rejected' });
-      if (o && o.uid && o.amount) TrustApp.addBalance(o.uid, 'USDT', o.amount);
-      toast('error', 'Order rejected, amount refunded');
-      renderAll();
+      if (!TrustApp.rejectAIOrder) return;
+      TrustApp.rejectAIOrder(id).then(function (ok) {
+        if (ok) toast('error', 'Order rejected, amount refunded');
+        else toast('error', 'Order was already processed');
+        renderAll();
+      }).catch(function () { toast('error', 'Could not reject order'); });
     }
 
     function settleDay(id) {
-      var o = o2(id);
-      if (!o || o.status !== 'running') return;
-      var scheds = o.schedules || [];
-      var next = null;
-      for (var i = 0; i < scheds.length; i++) if (scheds[i].status === 0) { next = scheds[i]; break; }
-      if (!next) return;
-      var rate = Math.round((o.rateMin + Math.random() * (o.rateMax - o.rateMin)) * 100) / 100;
-      var dayProfit = Math.round(o.amount * rate) / 100;
-      next.status = 1;
-      next.rate = rate;
-      next.profit = dayProfit;
-      var settledDays = (o.settledDays || 0) + 1;
-      var totalProfit = Math.round(((o.profit || 0) + dayProfit) * 100) / 100;
-      var patch = {
-        schedules: scheds,
-        settledDays: settledDays,
-        profit: totalProfit,
-        principal: Math.round((o.amount + totalProfit) * 100) / 100
-      };
-      var credit = dayProfit;
-      if (settledDays >= o.period) {
-        patch.status = 'completed';
-        patch.endAt = new Date().toISOString();
-        credit = Math.round((credit + o.amount) * 100) / 100;
-      }
-      // Single combined credit (profit + principal) so two un-awaited
-      // server-first reads cannot race and the last write silently erase
-      // the principal refund.
-      if (o.uid) TrustApp.addBalance(o.uid, 'USDT', credit);
-      TrustApp.updateAIOrder(id, patch);
-      toast('success', 'Day ' + next.day + ' settled: +' + fmt(dayProfit) + ' USDT');
-      renderAll();
+      if (!TrustApp.settleAIOrderDay) return;
+      TrustApp.settleAIOrderDay(id).then(function (res) {
+        if (!res || !res.ok) {
+          toast('error', res && res.reason === 'claimed' ? 'Day already settled by another session' : 'No unsettled day available');
+          renderAll();
+          return;
+        }
+        toast('success', 'Day ' + res.lastDay + ' settled: +' + fmt(res.profit) + ' USDT');
+        renderAll();
+      }).catch(function () { toast('error', 'Could not settle day'); });
     }
 
     function openDetail(id) {
